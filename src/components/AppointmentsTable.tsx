@@ -68,6 +68,10 @@ const AppointmentsTable = ({
               <th className="text-left p-4 font-semibold text-sm">Problem</th>
               <th className="text-left p-4 font-semibold text-sm">Status</th>
               <th className="text-left p-4 font-semibold text-sm">Response</th>
+              <th className="text-left p-4 font-semibold text-sm">Admin Note</th>
+              <th className="text-left p-4 font-semibold text-sm">Type</th>
+              <th className="text-left p-4 font-semibold text-sm">Assigned To</th>
+              <th className="text-left p-4 font-semibold text-sm">Updated At</th>
               <th className="text-center p-4 font-semibold text-sm">Actions</th>
             </tr>
           </thead>
@@ -120,6 +124,18 @@ const AppointmentsTable = ({
                 </td>
                 <td className="p-4 text-sm text-muted-foreground">
                   {appointment.patient_response || "-"}
+                </td>
+                <td className="p-4 text-sm text-muted-foreground">
+                  {appointment.admin_note || "-"}
+                </td>
+                <td className="p-4 text-sm text-muted-foreground">
+                  {appointment.appointment_type || "-"}
+                </td>
+                <td className="p-4 text-sm text-muted-foreground">
+                  {appointment.assigned_to || "-"}
+                </td>
+                <td className="p-4 text-sm text-muted-foreground">
+                  {appointment.updated_at ? formatDate(appointment.updated_at) : "-"}
                 </td>
                 <td className="p-4 text-center">
                   <Button
@@ -194,11 +210,34 @@ const AppointmentsTable = ({
                   {appointment.problem}
                 </p>
               )}
-
               {appointment.patient_response && (
                 <p>
                   <span className="text-muted-foreground">Response: </span>
                   {appointment.patient_response}
+                </p>
+              )}
+              {appointment.admin_note && (
+                <p>
+                  <span className="text-muted-foreground">Admin Note: </span>
+                  {appointment.admin_note}
+                </p>
+              )}
+              {appointment.appointment_type && (
+                <p>
+                  <span className="text-muted-foreground">Type: </span>
+                  {appointment.appointment_type}
+                </p>
+              )}
+              {appointment.assigned_to && (
+                <p>
+                  <span className="text-muted-foreground">Assigned To: </span>
+                  {appointment.assigned_to}
+                </p>
+              )}
+              {appointment.updated_at && (
+                <p>
+                  <span className="text-muted-foreground">Updated At: </span>
+                  {formatDate(appointment.updated_at)}
                 </p>
               )}
             </div>

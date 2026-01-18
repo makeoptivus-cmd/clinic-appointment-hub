@@ -36,17 +36,26 @@ export const useAppointments = () => {
 
   const updateAppointment = async (id: string, updates: AppointmentUpdate) => {
     try {
-      const { error: updateError } = await supabase
+      const { data, error: updateError } = await supabase
         .from("appointments")
         .update(updates)
-        .eq("id", id);
+        .eq("id", id)
+        .select();
 
-      if (updateError) throw updateError;
-      
+      if (updateError) {
+        // Log full error details for debugging
+        console.error("Update error:", updateError, { id, updates });
+        throw updateError;
+      }
+      if (!data || data.length === 0) {
+        console.warn("No data returned from update", { id, updates });
+      }
       toast.success("Appointment updated successfully");
       return true;
     } catch (err) {
       const message = err instanceof Error ? err.message : "Failed to update appointment";
+      // Log the error and context
+      console.error("Update failed:", err, { id, updates });
       toast.error(message);
       return false;
     }

@@ -60,6 +60,39 @@ This project is built with:
 - shadcn-ui
 - Tailwind CSS
 
+## Supabase Setup
+
+- Add your Supabase credentials to `.env`:
+
+```env
+VITE_SUPABASE_URL="https://<your-project-ref>.supabase.co"
+VITE_SUPABASE_PUBLISHABLE_KEY="<your-public-anon-key>"
+```
+
+- Client and helpers:
+	- [src/lib/supabaseClient.ts](src/lib/supabaseClient.ts): initializes the Supabase client from env vars.
+	- [src/lib/supabaseCrud.ts](src/lib/supabaseCrud.ts): generic CRUD helpers (`createRow`, `readRows`, `updateRows`, `deleteRows`).
+
+- Quick usage example:
+
+```ts
+import { createRow, readRows, updateRows, deleteRows } from 'src/lib/supabaseCrud'
+
+// Create
+await createRow('jn_dashboard', { patient_id: 1, doctor_id: 2, starts_at: new Date().toISOString() })
+
+// Read
+const { data } = await readRows('jn_dashboard', { eq: { patient_id: 1 }, order: { column: 'starts_at', ascending: true } })
+
+// Update
+await updateRows('jn_dashboard', { id: 123 }, { status: 'confirmed' })
+
+// Delete
+await deleteRows('jn_dashboard', { id: 123 })
+```
+
+Ensure the `jn_dashboard` table exists in your Supabase project and columns match the payload.
+
 ## How can I deploy this project?
 
 Simply open [Lovable](https://lovable.dev/projects/REPLACE_WITH_PROJECT_ID) and click on Share -> Publish.

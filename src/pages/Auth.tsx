@@ -8,6 +8,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { toast } from "sonner";
 import { Loader2, ShieldCheck, Mail, Lock, Eye, EyeOff } from "lucide-react";
 import { z } from "zod";
+import { useAuthDiagnostics } from "@/hooks/useAuth";
 
 const authSchema = z.object({
   email: z.string().email("Please enter a valid email address"),
@@ -22,6 +23,7 @@ const Auth = () => {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [errors, setErrors] = useState<{ email?: string; password?: string }>({});
+  const { envOk, sessionUserId, lastEvent, error: diagError } = useAuthDiagnostics();
 
   useEffect(() => {
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
@@ -222,6 +224,14 @@ const Auth = () => {
         <p className="text-center text-sm text-muted-foreground mt-6">
           Secure access for authorized clinic staff only
         </p>
+        <div className="mt-4 text-xs text-muted-foreground">
+          <div>Env: {envOk ? "loaded" : "missing"} Supabase config</div>
+          <div>Session user: {sessionUserId ?? "none"}</div>
+          {lastEvent && (
+            <div>Last auth event: {lastEvent.event} ({lastEvent.hasUser ? "user" : "no user"})</div>
+          )}
+          {diagError && <div className="text-destructive">Auth error: {diagError}</div>}
+        </div>
       </div>
     </div>
   );
