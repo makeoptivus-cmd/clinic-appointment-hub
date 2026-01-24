@@ -58,23 +58,14 @@ const AppointmentFilters = ({
         {/* Date Filter */}
         <div className="w-full lg:w-48">
           <label className="text-sm font-medium text-muted-foreground mb-1 block lg:hidden">
-            Filter by Date
+            Select Date
           </label>
-         <div className="relative">
-  {!dateFilter && (
-    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none">
-      dd-mm-yyyy
-    </span>
-  )}
-
-  <Input
-    type="date"
-    value={dateFilter}
-    onChange={(e) => setDateFilter(e.target.value)}
-    className="h-11"
-  />
-</div>
-
+          <Input
+            type="date"
+            value={dateFilter}
+            onChange={(e) => setDateFilter(e.target.value)}
+            className="h-11"
+          />
         </div>
 
         {/* Status Filter */}
