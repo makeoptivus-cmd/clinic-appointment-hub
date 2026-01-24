@@ -41,17 +41,25 @@ const AppointmentFilters = ({
       <div className="flex flex-col lg:flex-row gap-3">
         {/* Search */}
         <div className="relative flex-1">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-          <Input
-            placeholder="Search by name or mobile number..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            className="pl-10 h-11"
-          />
+          <label className="text-sm font-medium text-muted-foreground mb-1 block lg:hidden">
+            Search
+          </label>
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+            <Input
+              placeholder="Search by name or mobile number..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="pl-10 h-11"
+            />
+          </div>
         </div>
 
         {/* Date Filter */}
         <div className="w-full lg:w-48">
+          <label className="text-sm font-medium text-muted-foreground mb-1 block lg:hidden">
+            Filter by Date
+          </label>
           <Input
             type="date"
             value={dateFilter}
@@ -62,6 +70,9 @@ const AppointmentFilters = ({
 
         {/* Status Filter */}
         <div className="w-full lg:w-44">
+          <label className="text-sm font-medium text-muted-foreground mb-1 block lg:hidden">
+            Filter by Status
+          </label>
           <Select value={statusFilter} onValueChange={setStatusFilter}>
             <SelectTrigger className="h-11">
               <SelectValue placeholder="Status" />
