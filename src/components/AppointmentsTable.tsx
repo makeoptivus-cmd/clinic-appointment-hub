@@ -209,6 +209,7 @@ const AppointmentsTable = ({
                 <span className="text-muted-foreground">Date: </span>
                 <span
                   className={cn(
+                    "text-foreground",
                     isAppointmentToday(appointment.preferred_date) &&
                       "text-primary font-semibold"
                   )}
