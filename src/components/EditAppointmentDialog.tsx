@@ -56,7 +56,7 @@ const EditAppointmentDialog = ({
   useEffect(() => {
     if (appointment) {
       setStatus(appointment.status || "New");
-      setPatientResponse(appointment.patient_response || "");
+      setPatientResponse(appointment.patient_response || "none");
       setAdminNote(appointment.admin_note || "");
       setAppointmentType(appointment.appointment_type || "New Patient");
       setAssignedTo(appointment.assigned_to || "");
@@ -69,7 +69,7 @@ const EditAppointmentDialog = ({
     setSaving(true);
     const success = await onSave(appointment.id, {
       status,
-      patient_response: patientResponse || null,
+      patient_response: patientResponse === "none" ? null : patientResponse,
       admin_note: adminNote || null,
       appointment_type: appointmentType || null,
       assigned_to: assignedTo || null,
@@ -126,7 +126,7 @@ const EditAppointmentDialog = ({
                 <SelectValue placeholder="Select response" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="">None</SelectItem>
+                <SelectItem value="none">None</SelectItem>
                 {patientResponses.map((r) => (
                   <SelectItem key={r} value={r}>
                     {r}

@@ -20,29 +20,29 @@ CREATE TABLE public.appointments (
 -- Enable Row Level Security
 ALTER TABLE public.appointments ENABLE ROW LEVEL SECURITY;
 
--- Create policies - only authenticated admins can access
-CREATE POLICY "Authenticated users can view all appointments" 
+-- Create policies - allow both authenticated and anonymous users
+CREATE POLICY "Anyone can view all appointments" 
 ON public.appointments 
 FOR SELECT 
-TO authenticated
+TO authenticated, anon
 USING (true);
 
-CREATE POLICY "Authenticated users can insert appointments" 
+CREATE POLICY "Anyone can insert appointments" 
 ON public.appointments 
 FOR INSERT 
-TO authenticated
+TO authenticated, anon
 WITH CHECK (true);
 
-CREATE POLICY "Authenticated users can update appointments" 
+CREATE POLICY "Anyone can update appointments" 
 ON public.appointments 
 FOR UPDATE 
-TO authenticated
+TO authenticated, anon
 USING (true);
 
-CREATE POLICY "Authenticated users can delete appointments" 
+CREATE POLICY "Anyone can delete appointments" 
 ON public.appointments 
 FOR DELETE 
-TO authenticated
+TO authenticated, anon
 USING (true);
 
 -- Create function to update timestamps

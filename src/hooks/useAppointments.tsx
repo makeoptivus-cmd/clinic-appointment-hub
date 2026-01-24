@@ -36,20 +36,34 @@ export const useAppointments = () => {
 
   const updateAppointment = async (id: string, updates: AppointmentUpdate) => {
     try {
+      // Add updated_at timestamp
+      const updatesWithTimestamp = {
+        ...updates,
+        updated_at: new Date().toISOString(),
+      };
+
       const { data, error: updateError } = await supabase
         .from("appointments")
-        .update(updates)
+        .update(updatesWithTimestamp)
         .eq("id", id)
         .select();
 
       if (updateError) {
         // Log full error details for debugging
-        console.error("Update error:", updateError, { id, updates });
+        console.error("Update error:", updateError, { id, updates: updatesWithTimestamp });
+        
+        // Check for RLS policy violation
+        if (updateError.code === "42501" || updateError.message.includes("policy")) {
+          throw new Error("Permission denied. Please make sure you are logged in.");
+        }
         throw updateError;
       }
+      
       if (!data || data.length === 0) {
-        console.warn("No data returned from update", { id, updates });
+        console.warn("No data returned from update - appointment may not exist", { id, updates: updatesWithTimestamp });
+        throw new Error("Appointment not found or update failed");
       }
+      
       toast.success("Appointment updated successfully");
       return true;
     } catch (err) {
