@@ -78,7 +78,6 @@ export default function Appointments() {
         }}
         onSave={async (id, updates) => {
           const ok = await updateAppointment(id, updates)
-          if (ok) await refetch()
           return ok
         }}
       />

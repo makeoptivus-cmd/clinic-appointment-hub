@@ -64,6 +64,11 @@ export const useAppointments = () => {
         throw new Error("Appointment not found or update failed");
       }
       
+      // Immediately update local state with the returned data
+      setAppointments((prev) =>
+        prev.map((apt) => (apt.id === id ? (data[0] as Appointment) : apt))
+      );
+      
       toast.success("Appointment updated successfully");
       return true;
     } catch (err) {

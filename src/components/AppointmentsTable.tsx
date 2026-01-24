@@ -1,9 +1,16 @@
+import { useState } from "react";
 import { format, isToday, parseISO } from "date-fns";
-import { Phone, Edit2, Loader2 } from "lucide-react";
+import { Phone, Edit2, Loader2, MessageSquare } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import StatusBadge from "./StatusBadge";
 import { cn } from "@/lib/utils";
 import type { Database } from "@/integrations/supabase/types";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 
 type Appointment = Database["public"]["Tables"]["appointments"]["Row"];
 
@@ -18,6 +25,8 @@ const AppointmentsTable = ({
   loading,
   onEdit,
 }: AppointmentsTableProps) => {
+  const [selectedNote, setSelectedNote] = useState<{ name: string; note: string } | null>(null);
+
   const formatTime = (time: string | null) => {
     if (!time) return "-";
     const [hours, minutes] = time.split(":");
@@ -126,7 +135,17 @@ const AppointmentsTable = ({
                   {appointment.patient_response || "-"}
                 </td>
                 <td className="p-4 text-sm text-muted-foreground">
-                  {appointment.admin_note || "-"}
+                  {appointment.admin_note ? (
+                    <button
+                      onClick={() => setSelectedNote({ name: appointment.full_name, note: appointment.admin_note! })}
+                      className="flex items-center gap-1 text-left hover:text-primary transition-colors cursor-pointer max-w-[150px]"
+                    >
+                      <MessageSquare className="h-3.5 w-3.5 flex-shrink-0" />
+                      <span className="truncate">{appointment.admin_note}</span>
+                    </button>
+                  ) : (
+                    "-"
+                  )}
                 </td>
                 <td className="p-4 text-sm text-muted-foreground">
                   {appointment.appointment_type || "-"}
@@ -217,10 +236,14 @@ const AppointmentsTable = ({
                 </p>
               )}
               {appointment.admin_note && (
-                <p>
+                <button
+                  onClick={() => setSelectedNote({ name: appointment.full_name, note: appointment.admin_note! })}
+                  className="flex items-center gap-1 text-left hover:text-primary transition-colors cursor-pointer w-full"
+                >
                   <span className="text-muted-foreground">Admin Note: </span>
-                  {appointment.admin_note}
-                </p>
+                  <span className="truncate flex-1">{appointment.admin_note}</span>
+                  <MessageSquare className="h-3.5 w-3.5 flex-shrink-0 text-muted-foreground" />
+                </button>
               )}
               {appointment.appointment_type && (
                 <p>
@@ -254,6 +277,28 @@ const AppointmentsTable = ({
           </div>
         ))}
       </div>
+
+      {/* Admin Note Modal */}
+      <Dialog open={!!selectedNote} onOpenChange={(open) => !open && setSelectedNote(null)}>
+        <DialogContent className="sm:max-w-[500px] max-h-[80vh] overflow-hidden flex flex-col">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <MessageSquare className="h-5 w-5 text-primary" />
+              Admin Note
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3 pt-2 flex-1 overflow-hidden">
+            <div className="text-sm text-muted-foreground">
+              Patient: <span className="font-medium text-foreground">{selectedNote?.name}</span>
+            </div>
+            <div className="bg-muted/50 rounded-lg p-4 border max-h-[50vh] overflow-y-auto">
+              <p className="text-sm whitespace-pre-wrap leading-relaxed break-words">
+                {selectedNote?.note}
+              </p>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };
