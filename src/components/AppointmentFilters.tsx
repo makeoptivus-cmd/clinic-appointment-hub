@@ -60,13 +60,21 @@ const AppointmentFilters = ({
           <label className="text-sm font-medium text-muted-foreground mb-1 block lg:hidden">
             Filter by Date
           </label>
-          <Input
-            type="date"
-            value={dateFilter}
-            onChange={(e) => setDateFilter(e.target.value)}
-            placeholder="dd-mm-yyyy"
-            className="h-11 [&::-webkit-datetime-edit-text]:text-muted-foreground [&::-webkit-datetime-edit-month-field]:text-muted-foreground [&::-webkit-datetime-edit-day-field]:text-muted-foreground [&::-webkit-datetime-edit-year-field]:text-muted-foreground"
-          />
+         <div className="relative">
+  {!dateFilter && (
+    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none">
+      dd-mm-yyyy
+    </span>
+  )}
+
+  <Input
+    type="date"
+    value={dateFilter}
+    onChange={(e) => setDateFilter(e.target.value)}
+    className="h-11"
+  />
+</div>
+
         </div>
 
         {/* Status Filter */}
