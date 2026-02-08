@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { LogOut, RefreshCw, Calendar } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -8,6 +8,7 @@ import DashboardCounters from "@/components/DashboardCounters";
 import AppointmentFilters from "@/components/AppointmentFilters";
 import AppointmentsTable from "@/components/AppointmentsTable";
 import EditAppointmentDialog from "@/components/EditAppointmentDialog";
+import { supabase } from "@/integrations/supabase/client";
 import type { Database } from "@/integrations/supabase/types";
 
 type Appointment = Database["public"]["Tables"]["appointments"]["Row"];
@@ -16,6 +17,9 @@ const Dashboard = () => {
   const navigate = useNavigate();
   const { user, signOut } = useAuth();
   const { appointments, loading, updateAppointment, refetch } = useAppointments();
+
+  // Audio ref for notification sound
+  const notificationSound = useRef<HTMLAudioElement | null>(null);
 
   // Filters
   const [searchQuery, setSearchQuery] = useState("");
@@ -27,6 +31,62 @@ const Dashboard = () => {
     null
   );
   const [dialogOpen, setDialogOpen] = useState(false);
+
+  // Initialize audio and request notification permission
+  useEffect(() => {
+    notificationSound.current = new Audio('/notification.mp3');
+    
+    if (Notification.permission === "default") {
+      Notification.requestPermission();
+    }
+  }, []);
+
+  // Listen for new appointments in real-time
+  useEffect(() => {
+    const channel = supabase
+      .channel('appointments-realtime')
+      .on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'appointments'
+        },
+        (payload) => {
+          console.log('🎉 New appointment received:', payload.new);
+          
+          // Play notification sound
+          if (notificationSound.current) {
+            notificationSound.current.play()
+              .then(() => {
+                console.log('✅ Sound played successfully');
+              })
+              .catch((err) => {
+                console.error('❌ Error playing sound:', err);
+              });
+          }
+          
+          // Show browser notification
+          if (Notification.permission === "granted") {
+            const apt = payload.new as Appointment;
+            new Notification("New Appointment Booked! 🎉", {
+              body: `${apt.full_name} - ${apt.preferred_time}\nReason: ${apt.problem}`,
+              icon: '/favicon.ico',
+            });
+          }
+          
+          // Refresh the appointments list
+          refetch();
+        }
+      )
+      .subscribe((status) => {
+        console.log('📡 Realtime subscription status:', status);
+      });
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [refetch]);
 
   const handleSignOut = async () => {
     await signOut();
@@ -41,7 +101,6 @@ const Dashboard = () => {
   // Filter appointments
   const filteredAppointments = useMemo(() => {
     return appointments.filter((apt) => {
-      // Search filter
       if (searchQuery) {
         const query = searchQuery.toLowerCase();
         const matchesName = apt.full_name.toLowerCase().includes(query);
@@ -49,12 +108,10 @@ const Dashboard = () => {
         if (!matchesName && !matchesMobile) return false;
       }
 
-      // Date filter
       if (dateFilter && apt.preferred_date !== dateFilter) {
         return false;
       }
 
-      // Status filter
       if (statusFilter !== "All" && apt.status !== statusFilter) {
         return false;
       }
@@ -95,6 +152,7 @@ const Dashboard = () => {
                 />
                 Refresh
               </Button>
+              
               <Button
                 variant="ghost"
                 size="sm"
@@ -111,10 +169,8 @@ const Dashboard = () => {
 
       {/* Main Content */}
       <main className="container max-w-7xl mx-auto px-4 py-6">
-        {/* Counters */}
         <DashboardCounters appointments={appointments} loading={loading} />
 
-        {/* Filters */}
         <AppointmentFilters
           searchQuery={searchQuery}
           setSearchQuery={setSearchQuery}
@@ -124,7 +180,6 @@ const Dashboard = () => {
           setStatusFilter={setStatusFilter}
         />
 
-        {/* Total Count */}
         <div className="flex items-center justify-between mb-4">
           <p className="text-sm text-muted-foreground">
             Showing{" "}
@@ -139,7 +194,6 @@ const Dashboard = () => {
           </p>
         </div>
 
-        {/* Table */}
         <AppointmentsTable
           appointments={filteredAppointments}
           loading={loading}
@@ -147,7 +201,6 @@ const Dashboard = () => {
         />
       </main>
 
-      {/* Edit Dialog */}
       <EditAppointmentDialog
         appointment={editingAppointment}
         open={dialogOpen}
