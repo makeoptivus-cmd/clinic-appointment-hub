@@ -51,6 +51,73 @@ const patientResponses = [
 ];
 const appointmentTypes = ["New Patient", "Follow-up"];
 
+// Image compression function
+const compressImage = async (file: File, maxSizeMB: number = 0.95): Promise<Blob> => {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.readAsDataURL(file);
+    reader.onload = (event) => {
+      const img = new Image();
+      img.src = event.target?.result as string;
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        let width = img.width;
+        let height = img.height;
+
+        // Calculate new dimensions to reduce file size
+        const maxDimension = 1920;
+        if (width > height && width > maxDimension) {
+          height = (height * maxDimension) / width;
+          width = maxDimension;
+        } else if (height > maxDimension) {
+          width = (width * maxDimension) / height;
+          height = maxDimension;
+        }
+
+        canvas.width = width;
+        canvas.height = height;
+
+        const ctx = canvas.getContext('2d');
+        if (!ctx) {
+          reject(new Error('Could not get canvas context'));
+          return;
+        }
+
+        ctx.drawImage(img, 0, 0, width, height);
+
+        // Start with high quality
+        let quality = 0.9;
+        const targetSize = maxSizeMB * 1024 * 1024;
+
+        const tryCompress = (currentQuality: number) => {
+          canvas.toBlob(
+            (blob) => {
+              if (!blob) {
+                reject(new Error('Compression failed'));
+                return;
+              }
+
+              // If size is good or quality is too low, return current blob
+              if (blob.size <= targetSize || currentQuality <= 0.3) {
+                resolve(blob);
+              } else {
+                // Try again with lower quality
+                tryCompress(currentQuality - 0.1);
+              }
+            },
+            'image/jpeg',
+            currentQuality
+          );
+        };
+
+        tryCompress(quality);
+      };
+      img.onerror = () => reject(new Error('Failed to load image'));
+    };
+    reader.onerror = () => reject(new Error('Failed to read file'));
+  });
+};
+
 const EditAppointmentDialog = ({
   appointment,
   open,
@@ -180,8 +247,26 @@ const EditAppointmentDialog = ({
           continue;
         }
 
-        if (file.size > 5 * 1024 * 1024) {
-          alert(`${file.name} is too large. Max size is 5MB`);
+        // Compress the image before uploading
+        let fileToUpload: Blob = file;
+        let originalSize = file.size;
+        
+        // Only compress if file is larger than 1 MB
+        if (file.size > 1024 * 1024) {
+          try {
+            console.log(`Compressing ${file.name} (${(originalSize / 1024 / 1024).toFixed(2)} MB)...`);
+            fileToUpload = await compressImage(file, 0.95); // Target just under 1 MB
+            console.log(`Compressed to ${(fileToUpload.size / 1024 / 1024).toFixed(2)} MB`);
+          } catch (compressionError) {
+            console.error('Compression error:', compressionError);
+            alert(`Error compressing ${file.name}. Using original file.`);
+            fileToUpload = file;
+          }
+        }
+
+        // Check final size (allow up to 4.5 MB after compression)
+        if (fileToUpload.size > 4.5 * 1024 * 1024) {
+          alert(`${file.name} is still too large after compression. Please use a smaller image.`);
           continue;
         }
 
@@ -190,7 +275,10 @@ const EditAppointmentDialog = ({
 
         const { error: uploadError } = await supabase.storage
           .from('assessment-images')
-          .upload(fileName, file);
+          .upload(fileName, fileToUpload, {
+            contentType: 'image/jpeg',
+            upsert: false
+          });
 
         if (uploadError) {
           console.error('Upload error:', uploadError);
@@ -201,10 +289,12 @@ const EditAppointmentDialog = ({
         uploadedPaths.push(fileName);
       }
 
-      const newPaths = [...assessmentImagePaths, ...uploadedPaths];
-      setAssessmentImagePaths(newPaths);
-      
-      await loadImageUrls(newPaths);
+      if (uploadedPaths.length > 0) {
+        const newPaths = [...assessmentImagePaths, ...uploadedPaths];
+        setAssessmentImagePaths(newPaths);
+        await loadImageUrls(newPaths);
+        alert(`✅ Successfully uploaded ${uploadedPaths.length} image(s)`);
+      }
     } catch (error) {
       console.error('Error uploading images:', error);
       alert('Error uploading images');
@@ -433,10 +523,10 @@ const EditAppointmentDialog = ({
                   <div className="border-2 border-dashed border-primary/30 rounded-lg p-6 hover:border-primary/50 hover:bg-primary/5 transition-all text-center">
                     <Upload className="h-8 w-8 mx-auto mb-2 text-primary" />
                     <p className="text-sm font-medium text-foreground mb-1">
-                      {uploading ? 'Uploading...' : 'Click to upload assessment images'}
+                      {uploading ? 'Compressing & Uploading...' : 'Click to upload assessment images'}
                     </p>
                     <p className="text-xs text-muted-foreground">
-                      PNG, JPG up to 5MB (multiple files allowed)
+                      PNG, JPG - Images will be auto-compressed to under 1 MB
                     </p>
                   </div>
                   <Input
