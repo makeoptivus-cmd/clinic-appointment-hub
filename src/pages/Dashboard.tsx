@@ -32,16 +32,25 @@ const Dashboard = () => {
   );
   const [dialogOpen, setDialogOpen] = useState(false);
 
-  // Initialize audio and request notification permission
+  // Initialize audio and request notification permission (iOS compatible)
   useEffect(() => {
-    notificationSound.current = new Audio('/notification.mp3');
+    // Wrap in try-catch for iOS compatibility
+    try {
+      notificationSound.current = new Audio('/notification.mp3');
+      notificationSound.current.load(); // Preload without playing
+    } catch (error) {
+      console.warn('Audio not supported on this device:', error);
+    }
     
-    if (Notification.permission === "default") {
-      Notification.requestPermission();
+    // Check if Notifications API is supported
+    if (typeof Notification !== 'undefined' && Notification.permission === "default") {
+      Notification.requestPermission().catch(err => {
+        console.warn('Notification permission request failed:', err);
+      });
     }
   }, []);
 
-  // Listen for new appointments in real-time
+  // Listen for new appointments in real-time (iOS compatible)
   useEffect(() => {
     const channel = supabase
       .channel('appointments-realtime')
@@ -55,24 +64,28 @@ const Dashboard = () => {
         (payload) => {
           console.log('🎉 New appointment received:', payload.new);
           
-          // Play notification sound
+          // Play notification sound (with error handling for iOS)
           if (notificationSound.current) {
             notificationSound.current.play()
               .then(() => {
                 console.log('✅ Sound played successfully');
               })
               .catch((err) => {
-                console.error('❌ Error playing sound:', err);
+                console.warn('⚠️ Sound play failed (expected on iOS without user interaction):', err);
               });
           }
           
-          // Show browser notification
-          if (Notification.permission === "granted") {
-            const apt = payload.new as Appointment;
-            new Notification("New Appointment Booked! 🎉", {
-              body: `${apt.full_name} - ${apt.preferred_time}\nReason: ${apt.problem}`,
-              icon: '/favicon.ico',
-            });
+          // Show browser notification (with feature detection)
+          if (typeof Notification !== 'undefined' && Notification.permission === "granted") {
+            try {
+              const apt = payload.new as Appointment;
+              new Notification("New Appointment Booked! 🎉", {
+                body: `${apt.full_name} - ${apt.preferred_time}\nReason: ${apt.problem}`,
+                icon: '/favicon.ico',
+              });
+            } catch (error) {
+              console.warn('⚠️ Notification failed:', error);
+            }
           }
           
           // Refresh the appointments list
