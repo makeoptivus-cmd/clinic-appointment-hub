@@ -42,7 +42,7 @@ interface EditAppointmentDialogProps {
   onSave: (id: string, updates: AppointmentUpdate) => Promise<boolean>;
 }
 
-const statuses = ["New", "Confirmed", "Completed", "Cancelled", "No Show"];
+const statuses = ["New", "Confirmed", "Completed", "Session Completed", "Cancelled", "No Show"];
 const patientResponses = [
   "Will Come",
   "Will Not Come",
@@ -154,21 +154,24 @@ const EditAppointmentDialog = ({
     }
 
     try {
+      const validPaths = imagePaths.filter(path => typeof path === 'string' && path.length > 0);
       const urls = await Promise.all(
-        imagePaths.map(async (path) => {
-          const { data, error } = await supabase.storage
-            .from('assessment-images')
-            .createSignedUrl(path, 3600);
-
-          if (error) {
-            console.error('Error creating signed URL:', error);
+        validPaths.map(async (path) => {
+          try {
+            const { data, error } = await supabase.storage
+              .from('assessment-images')
+              .createSignedUrl(path, 3600);
+            if (error || !data?.signedUrl) {
+              console.warn('Image not found or error creating signed URL:', path, error);
+              return '';
+            }
+            return data.signedUrl;
+          } catch (err) {
+            console.warn('Error loading image URL:', path, err);
             return '';
           }
-
-          return data.signedUrl;
         })
       );
-
       setAssessmentImageUrls(urls.filter(url => url !== ''));
     } catch (error) {
       console.error('Error loading image URLs:', error);

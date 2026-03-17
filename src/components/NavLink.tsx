@@ -25,4 +25,7 @@ const NavLink = forwardRef<HTMLAnchorElement, NavLinkCompatProps>(
 
 NavLink.displayName = "NavLink";
 
+// Example usage for navigation menu:
+// <NavLink to="/whatsapp-messages" className="nav-link">WhatsApp Messages</NavLink>
+
 export { NavLink };

@@ -31,6 +31,7 @@ export type Database = {
           problem: string | null
           status: string
           updated_at: string
+          message_sent: boolean
         }
         Insert: {
           admin_note?: string | null
@@ -48,6 +49,7 @@ export type Database = {
           problem?: string | null
           status?: string
           updated_at?: string
+          message_sent?: boolean
         }
         Update: {
           admin_note?: string | null
@@ -65,6 +67,7 @@ export type Database = {
           problem?: string | null
           status?: string
           updated_at?: string
+          message_sent?: boolean
         }
         Relationships: []
       }

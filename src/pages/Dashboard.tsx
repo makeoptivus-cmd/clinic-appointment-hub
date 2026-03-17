@@ -155,6 +155,13 @@ const Dashboard = () => {
 
             <div className="flex items-center gap-2">
               <Button
+                className="bg-green-500 text-white"
+                size="sm"
+                onClick={() => navigate('/whatsapp-messages')}
+              >
+                WhatsApp Messages
+              </Button>
+              <Button
                 variant="outline"
                 size="sm"
                 onClick={refetch}
