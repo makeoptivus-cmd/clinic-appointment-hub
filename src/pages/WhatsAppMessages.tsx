@@ -2,6 +2,8 @@ import { useState, useEffect } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 import type { Database } from '@/integrations/supabase/types';
+import AppMenuBar from '@/components/AppMenuBar';
+import { createTimelineEvent, parseTimeline } from "@/lib/appointmentTimeline";
 
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -10,23 +12,89 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Badge } from "@/components/ui/badge";
-import { MessageCircle, Check, Send, Users, Calendar, Loader2, CheckCheck, ListFilter, Filter } from "lucide-react";
+import { MessageCircle, Check, Send, Users, Calendar, Loader2, CheckCheck, ListFilter, Filter, AlertCircle } from "lucide-react";
 
 const messageTemplates = {
-  session_reminder: 'Hi {name}, this is a reminder for your physio session today. Please don’t miss it!',
-  missed_session: 'Hi {name}, you missed your session today. Want to reschedule?',
-  common_message: 'Hi {name}, here is a message from our clinic!',
-  session_not_completed_10days: 'Hi {name}, it has been 10 days since your appointment. Please complete your session or let us know if you need help.'
+  session_reminder: "Hi {name}, this is a reminder for your physio session today. Please don't miss it!",
+  missed_session: "Hi {name}, you missed your session today. Want to reschedule?",
+  common_message: "Hi {name}, here is a message from our clinic!",
+  session_not_completed_10days:
+    "Hi {name}, it has been 10 days since your appointment. Please complete your session or let us know if you need help.",
 };
 
 type Appointment = Database['public']['Tables']['appointments']['Row'];
+type DeliveryStatus = "pending" | "sent" | "delivered" | "failed";
+type DeliveryLog = {
+  id: string;
+  full_name: string;
+  mobile_number: string;
+  status: DeliveryStatus;
+  at: string;
+};
+
+const DELIVERY_STATUS_NOTE_REGEX = /\[WA_STATUS:(pending|sent|delivered|failed)\]/gi;
+
+const isDeliveryStatus = (value: unknown): value is DeliveryStatus =>
+  value === "pending" || value === "sent" || value === "delivered" || value === "failed";
+
+const getDeliveryStatusFromAdminNote = (note: string | null): DeliveryStatus | null => {
+  if (!note) return null;
+  const matches = [...note.matchAll(DELIVERY_STATUS_NOTE_REGEX)];
+  if (matches.length === 0) return null;
+  const last = matches[matches.length - 1]?.[1]?.toLowerCase();
+  return isDeliveryStatus(last) ? last : null;
+};
+
+const withDeliveryStatusMarker = (note: string | null, status: DeliveryStatus) => {
+  const stripped = (note || "").replace(DELIVERY_STATUS_NOTE_REGEX, "").trim();
+  const marker = `[WA_STATUS:${status}]`;
+  return stripped ? `${stripped} ${marker}` : marker;
+};
+
+const getDeliveryStatus = (appointment: Appointment): DeliveryStatus => {
+  const raw = (appointment as Appointment & { whatsapp_delivery_status?: unknown })
+    .whatsapp_delivery_status;
+  if (isDeliveryStatus(raw)) return raw;
+  const noteStatus = getDeliveryStatusFromAdminNote(appointment.admin_note);
+  if (noteStatus) return noteStatus;
+  return appointment.message_sent ? "sent" : "pending";
+};
+
+type ApiError = {
+  code?: string;
+  message?: string;
+  details?: string | null;
+};
+
+const isMissingColumnError = (error: ApiError | null) => {
+  if (!error) return false;
+  if (error.code === "42703" || error.code === "PGRST204") return true;
+  const message = (error.message || "").toLowerCase();
+  return (
+    message.includes("column") &&
+    (message.includes("whatsapp_delivery_status") ||
+      message.includes("whatsapp_delivery_updated_at") ||
+      message.includes("timeline"))
+  );
+};
+
+const isUnsupportedDeliveryStatusError = (error: ApiError | null) => {
+  if (!error) return false;
+  if (error.code === "23514") return true;
+  const text = `${error.message || ""} ${error.details || ""}`.toLowerCase();
+  return (
+    text.includes("appointments_whatsapp_delivery_status_check") ||
+    (text.includes("check constraint") && text.includes("whatsapp_delivery_status"))
+  );
+};
 
 function WhatsAppMessages() {
   const [selectedType, setSelectedType] = useState('session_reminder');
   const [appointments, setAppointments] = useState<Appointment[]>([]);
-  const [sentList, setSentList] = useState<Appointment[]>([]);
+  const [sentList, setSentList] = useState<DeliveryLog[]>([]);
   const [loading, setLoading] = useState(true);
   const [today, setToday] = useState(() => new Date().toISOString().slice(0, 10)); // YYYY-MM-DD
+  const [deliveryFilter, setDeliveryFilter] = useState<"all" | DeliveryStatus>("all");
   // For common_message selection/filter
   const [filter, setFilter] = useState('');
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
@@ -35,32 +103,51 @@ function WhatsAppMessages() {
   const [showLinksModal, setShowLinksModal] = useState(false);
 
   useEffect(() => {
+    if (selectedType === "common_message") {
+      setDeliveryFilter("all");
+    } else {
+      setDeliveryFilter("pending");
+    }
+  }, [selectedType]);
+
+  useEffect(() => {
     const fetchAppointments = async () => {
       setLoading(true);
-      let query = supabase.from('appointments').select('*').eq('message_sent', false);
-      if (selectedType === 'session_reminder') {
-        // Patients who have a session today (status not Missed or Completed)
-        query = query.eq('preferred_date', today).not('status', 'in', '(Missed,Completed,Session Completed)');
-      } else if (selectedType === 'missed_session') {
-        // Patients who were 'No Show' on the day before the selected date
+      let query = supabase.from('appointments').select('*');
+
+      if (selectedType !== "common_message") {
+        if (deliveryFilter === "pending") {
+          query = query.eq("message_sent", false);
+        } else if (deliveryFilter !== "all") {
+          query = query.eq("message_sent", true);
+        }
+      }
+
+      if (selectedType === "session_reminder") {
+        // Patients who have a session today and are not closed/cancelled.
+        query = query
+          .eq("preferred_date", today)
+          .not("status", "in", "(Cancelled,No Show,Missed,Completed,Session Completed)");
+      } else if (selectedType === "missed_session") {
+        // Patients who were No Show / Missed on the day before selected date.
         const selected = new Date(today);
         selected.setDate(selected.getDate() - 1);
         const prevDay = selected.toISOString().slice(0, 10);
-        console.log('Missed Session filter: prevDay =', prevDay);
-        query = query.eq('preferred_date', prevDay).eq('status', 'No Show');
-      } else if (selectedType === 'session_not_completed_10days') {
-        // Patients whose appointment was 10+ days ago and status is NOT 'Session Completed'
+        query = query.eq("preferred_date", prevDay).in("status", ["No Show", "Missed"]);
+      } else if (selectedType === "session_not_completed_10days") {
+        // Patients with appointments 10+ days old that are not closed/cancelled.
         const tenDaysAgo = new Date(Date.now() - 10 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
-        query = query.lte('preferred_date', tenDaysAgo).not('status', 'eq', 'Session Completed');
-      } else if (selectedType === 'common_message') {
+        query = query
+          .lte("preferred_date", tenDaysAgo)
+          .not("status", "in", "(Cancelled,No Show,Missed,Completed,Session Completed)");
+      } else if (selectedType === "common_message") {
         // All patients for a common message
         // No extra filter
       }
-      const { data, error } = await query.order('preferred_time', { ascending: true });
-      let filtered = data || [];
-      if (selectedType === 'missed_session') {
-        console.log('Missed Session query result:', filtered);
-      }
+      const { data, error } = await query
+        .order('preferred_date', { ascending: false })
+        .order('preferred_time', { ascending: false });
+      const filtered = data || [];
       // Deduplicate by mobile_number so each person appears only once
       const uniqueByMobile: Record<string, Appointment> = {};
       filtered.forEach(a => {
@@ -78,48 +165,118 @@ function WhatsAppMessages() {
       setSelectAll(false);
     };
     fetchAppointments();
-  }, [selectedType, today]);
+  }, [selectedType, today, deliveryFilter]);
+
+  const updateDeliveryStatus = async (appointment: Appointment, status: DeliveryStatus) => {
+    const timeline = parseTimeline((appointment as Appointment & { timeline?: unknown }).timeline as never);
+    const timelineEntry = createTimelineEvent(
+      "whatsapp",
+      `WhatsApp delivery status marked as ${status}`
+    );
+    const updatedAt = new Date().toISOString();
+    const saveStatusWithNoteFallback = async () => {
+      const fallback = await supabase
+        .from("appointments")
+        .update({
+          message_sent: status !== "pending",
+          admin_note: withDeliveryStatusMarker(appointment.admin_note, status),
+        })
+        .eq("id", appointment.id)
+        .select()
+        .single();
+
+      if (fallback.error) {
+        toast.error("Failed to update WhatsApp status");
+        console.error("WhatsApp status note fallback failed", fallback.error);
+        return null;
+      }
+
+      return {
+        ...(fallback.data as Appointment),
+        whatsapp_delivery_status: status,
+        whatsapp_delivery_updated_at: updatedAt,
+      } as Appointment;
+    };
+
+    const { data, error } = await supabase
+      .from('appointments')
+      .update({
+        message_sent: status !== "pending",
+        whatsapp_delivery_status: status,
+        whatsapp_delivery_updated_at: updatedAt,
+        timeline: [...timeline, timelineEntry],
+      })
+      .eq('id', appointment.id)
+      .select()
+      .single();
+
+    let updatedRow: Appointment | null = null;
+
+    if (!error) {
+      updatedRow = data as Appointment;
+      toast.success(`WhatsApp status updated to ${status}`);
+    } else if (isMissingColumnError(error as ApiError)) {
+      updatedRow = await saveStatusWithNoteFallback();
+      if (!updatedRow) return;
+      toast.success(`WhatsApp status updated to ${status} (compatibility mode)`);
+    } else if (isUnsupportedDeliveryStatusError(error as ApiError)) {
+      updatedRow = await saveStatusWithNoteFallback();
+      if (!updatedRow) return;
+      toast.success(`WhatsApp status updated to ${status} (compatibility mode)`);
+    } else {
+      toast.error("Failed to update WhatsApp status");
+      console.error("WhatsApp status update failed", error);
+      return;
+    }
+
+    setAppointments((prev) =>
+      prev.map((item) => (item.id === appointment.id ? updatedRow! : item))
+    );
+    setSentList((prev) => [
+      {
+        id: appointment.id,
+        full_name: appointment.full_name,
+        mobile_number: appointment.mobile_number,
+        status,
+        at: new Date().toISOString(),
+      },
+      ...prev,
+    ].slice(0, 15));
+  };
 
   const handleSend = async (appointment: Appointment) => {
     const message = messageTemplates[selectedType as keyof typeof messageTemplates].replace('{name}', appointment.full_name);
     window.open(`https://wa.me/${appointment.mobile_number}?text=${encodeURIComponent(message)}`);
+    await updateDeliveryStatus(appointment, "sent");
   };
 
   // For common_message: send to selected or all
-  const handleSendToSelected = () => {
+  const handleSendToSelected = async () => {
     const selected = appointments.filter(a => selectedIds.includes(a.id));
-    selected.forEach(a => handleSend(a));
+    for (const appointment of selected) {
+      await handleSend(appointment);
+    }
   };
 
-  const filteredAppointments = selectedType === 'common_message' && filter
+  const filteredAppointments = (selectedType === 'common_message' && filter
     ? appointments.filter(a =>
         a.full_name.toLowerCase().includes(filter.toLowerCase()) ||
         a.mobile_number.includes(filter)
       )
-    : appointments;
+    : appointments).filter((appointment) => {
+      const status = getDeliveryStatus(appointment);
+      return deliveryFilter === "all" ? true : status === deliveryFilter;
+    });
 
   const handleSendToAll = () => {
     // Instead of opening all links, show a modal with all WhatsApp links
     setShowLinksModal(true);
   };
 
-
-  const handleMarkAsSent = async (appointment: Appointment) => {
-    const { error } = await supabase
-      .from('appointments')
-      .update({ message_sent: true })
-      .eq('id', appointment.id);
-    if (error) {
-      toast.error('Failed to mark as sent');
-    } else {
-      toast.success('Message marked as sent');
-      setAppointments(prev => prev.filter(a => a.id !== appointment.id));
-      setSentList(prev => [...prev, appointment]);
-    }
-  };
-
   return (
-    <div className="container mx-auto p-4 sm:p-6 lg:p-8 max-w-7xl animate-in fade-in space-y-6">
+    <div className="min-h-screen bg-background">
+      <AppMenuBar />
+      <div className="container mx-auto max-w-7xl p-4 sm:p-6 lg:p-8 animate-in fade-in space-y-6">
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <div>
           <h1 className="text-2xl sm:text-3xl font-bold tracking-tight bg-gradient-to-r from-green-600 to-emerald-400 bg-clip-text text-transparent">
@@ -129,7 +286,7 @@ function WhatsAppMessages() {
             Send bulk or individual messages to your patients.
           </p>
         </div>
-        <div className="p-3 bg-green-50 rounded-full dark:bg-green-900/20">
+        <div className="hidden sm:block p-3 bg-green-50 rounded-full dark:bg-green-900/20">
           <MessageCircle className="w-8 h-8 text-green-600 dark:text-green-400" />
         </div>
       </div>
@@ -142,7 +299,7 @@ function WhatsAppMessages() {
           <CardDescription>Select the type of message and date to filter patients</CardDescription>
         </CardHeader>
         <CardContent className="pt-6">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
             <div className="space-y-2">
               <Label className="text-sm font-medium">Message Type</Label>
               <Select value={selectedType} onValueChange={setSelectedType}>
@@ -170,6 +327,22 @@ function WhatsAppMessages() {
                 />
               </div>
             </div>
+
+            <div className="space-y-2">
+              <Label className="text-sm font-medium">Delivery Status</Label>
+              <Select value={deliveryFilter} onValueChange={(value) => setDeliveryFilter(value as "all" | DeliveryStatus)}>
+                <SelectTrigger className="w-full">
+                  <SelectValue placeholder="Filter status" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All</SelectItem>
+                  <SelectItem value="pending">Pending</SelectItem>
+                  <SelectItem value="sent">Sent</SelectItem>
+                  <SelectItem value="delivered">Delivered</SelectItem>
+                  <SelectItem value="failed">Failed</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
           </div>
 
           {selectedType === 'common_message' && (
@@ -188,17 +361,17 @@ function WhatsAppMessages() {
                     />
                   </div>
                 </div>
-                <div className="flex gap-2 flex-wrap sm:flex-nowrap w-full sm:w-auto mt-2 sm:mt-0">
+                <div className="flex gap-2 flex-col sm:flex-row sm:flex-nowrap w-full sm:w-auto mt-2 sm:mt-0">
                    <Button 
                      variant="outline" 
-                     className="flex-1 sm:flex-none"
+                     className="w-full sm:w-auto"
                      onClick={handleSendToAll}
                      disabled={filteredAppointments.length === 0}
                    >
                      <Users className="w-4 h-4 mr-2" /> Send to All
                    </Button>
                    <Button 
-                     className="flex-1 sm:flex-none bg-green-600 hover:bg-green-700 text-white"
+                     className="w-full sm:w-auto bg-green-600 hover:bg-green-700 text-white"
                      onClick={handleSendToSelected}
                      disabled={selectedIds.length === 0}
                    >
@@ -208,7 +381,7 @@ function WhatsAppMessages() {
               </div>
 
               {filteredAppointments.length > 0 && (
-                <div className="flex items-center space-x-2 pt-2 border-t mt-4 border-slate-200 dark:border-slate-800">
+                <div className="flex items-start sm:items-center space-x-2 pt-2 border-t mt-4 border-slate-200 dark:border-slate-800">
                   <Checkbox 
                     id="selectAll" 
                     checked={selectAll}
@@ -221,7 +394,7 @@ function WhatsAppMessages() {
                       }
                     }}
                   />
-                  <Label htmlFor="selectAll" className="text-sm cursor-pointer mt-1">
+                  <Label htmlFor="selectAll" className="text-sm cursor-pointer leading-5">
                     Select All {filteredAppointments.length} patients
                   </Label>
                 </div>
@@ -229,18 +402,31 @@ function WhatsAppMessages() {
 
               {/* WhatsApp Links Modal */}
               {showLinksModal && (
-                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-40">
-                  <div className="bg-white rounded-lg shadow-lg p-6 max-w-lg w-full relative">
-                    <button className="absolute top-2 right-2 text-xl" onClick={() => setShowLinksModal(false)}>&times;</button>
+                <div className="fixed inset-0 z-50 bg-black/40 p-4 sm:p-6">
+                  <div className="mx-auto flex h-full max-w-2xl items-center justify-center">
+                    <div className="relative w-full max-h-[90vh] overflow-hidden rounded-lg border bg-background p-4 sm:p-6 shadow-lg">
+                    <button
+                      className="absolute right-3 top-3 text-xl"
+                      onClick={() => setShowLinksModal(false)}
+                    >
+                      &times;
+                    </button>
                     <h3 className="text-lg font-bold mb-4">WhatsApp Links for All Patients</h3>
-                    <ul className="max-h-80 overflow-y-auto mb-4">
+                    <ul className="mb-4 max-h-[55vh] overflow-y-auto pr-1">
                       {filteredAppointments.map(a => {
-                        const message = messageTemplates[selectedType].replace('{name}', a.full_name);
-                        const waLink = `https://wa.me/${a.mobile_number}?text=${encodeURIComponent(message)}`;
                         return (
-                          <li key={a.id} className="mb-2 flex items-center">
-                            <span className="mr-2">{a.full_name} ({a.mobile_number})</span>
-                            <a href={waLink} target="_blank" rel="noopener noreferrer" className="bg-green-500 text-white px-2 py-1 rounded text-xs">Open</a>
+                          <li
+                            key={a.id}
+                            className="mb-2 flex flex-col gap-2 rounded-md border p-2 sm:flex-row sm:items-center sm:justify-between"
+                          >
+                            <span className="text-sm break-all">{a.full_name} ({a.mobile_number})</span>
+                            <button
+                              type="button"
+                              onClick={() => void handleSend(a)}
+                              className="rounded bg-green-500 px-3 py-1 text-center text-xs text-white"
+                            >
+                              Open
+                            </button>
                           </li>
                         );
                       })}
@@ -248,6 +434,7 @@ function WhatsAppMessages() {
                     <button className="bg-gray-700 text-white px-4 py-2 rounded w-full" onClick={() => setShowLinksModal(false)}>
                       Close
                     </button>
+                    </div>
                   </div>
                 </div>
               )}
@@ -313,31 +500,45 @@ function WhatsAppMessages() {
                       <div className="flex flex-col">
                         <span className="font-semibold text-base">{appointment.full_name}</span>
                         <span className="text-sm text-muted-foreground font-mono mt-0.5">{appointment.mobile_number}</span>
-                        <div className="mt-2 sm:hidden">
+                        <div className="mt-2 sm:hidden flex items-center gap-2">
                           <Badge variant="secondary" className="font-normal">{appointment.status}</Badge>
+                          <Badge variant="outline" className="font-normal capitalize">
+                            WA: {getDeliveryStatus(appointment)}
+                          </Badge>
                         </div>
                       </div>
                     </div>
                     
                     <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 mt-4 sm:mt-0 basis-full sm:basis-auto">
-                      <div className="hidden sm:block">
+                      <div className="hidden sm:flex sm:items-center sm:gap-2">
                         <Badge variant="secondary" className="font-normal">{appointment.status}</Badge>
+                        <Badge variant="outline" className="font-normal capitalize">
+                          WA: {getDeliveryStatus(appointment)}
+                        </Badge>
                       </div>
                       
                       {selectedType !== 'common_message' && (
                         <div className="flex gap-2 w-full sm:w-auto mt-2 sm:mt-0">
                           <Button 
-                            variant="outline" 
+                            variant="outline"
                             size="sm"
                             className="flex-1 sm:flex-none bg-background hover:bg-slate-100"
-                            onClick={() => handleMarkAsSent(appointment)}
+                            onClick={() => void updateDeliveryStatus(appointment, "delivered")}
                           >
-                            <Check className="w-4 h-4 mr-1.5" /> Mark
+                            <Check className="w-4 h-4 mr-1.5" /> Delivered
+                          </Button>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="flex-1 sm:flex-none"
+                            onClick={() => void updateDeliveryStatus(appointment, "failed")}
+                          >
+                            <AlertCircle className="w-4 h-4 mr-1.5" /> Failed
                           </Button>
                           <Button 
                             className="bg-green-600 hover:bg-green-700 text-white flex-1 sm:flex-none shadow-sm"
                             size="sm"
-                            onClick={() => handleSend(appointment)}
+                            onClick={() => void handleSend(appointment)}
                           >
                             <MessageCircle className="w-4 h-4 mr-1.5" /> Send
                           </Button>
@@ -366,12 +567,15 @@ function WhatsAppMessages() {
               </div>
             ) : (
               <div className="space-y-3">
-                {sentList.map(appointment => (
-                  <div key={appointment.id} className="flex items-center gap-3 p-3 text-sm rounded-md bg-green-50/50 dark:bg-green-900/10 border border-green-100/50 dark:border-green-900/30">
+                {sentList.map((item) => (
+                  <div key={`${item.id}-${item.at}`} className="flex items-center gap-3 p-3 text-sm rounded-md bg-green-50/50 dark:bg-green-900/10 border border-green-100/50 dark:border-green-900/30">
                     <div className="w-2 h-2 rounded-full bg-green-500 flex-shrink-0 animate-pulse"></div>
                     <div className="flex flex-col min-w-0">
-                      <span className="font-medium text-slate-700 dark:text-slate-300 truncate w-full">{appointment.full_name}</span>
-                      <span className="text-xs text-muted-foreground">{appointment.mobile_number}</span>
+                      <span className="font-medium text-slate-700 dark:text-slate-300 truncate w-full">{item.full_name}</span>
+                      <span className="text-xs text-muted-foreground">{item.mobile_number}</span>
+                      <span className="text-xs capitalize text-muted-foreground">
+                        {item.status} at {new Date(item.at).toLocaleTimeString()}
+                      </span>
                     </div>
                   </div>
                 ))}
@@ -380,8 +584,10 @@ function WhatsAppMessages() {
           </CardContent>
         </Card>
       </div>
+      </div>
     </div>
   );
 }
 
 export default WhatsAppMessages;
+

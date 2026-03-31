@@ -1,7 +1,8 @@
 import { createClient } from '@supabase/supabase-js'
 
 // Prefer environment variables from Vite (client-side) or Node (tests/SSR)
-const env = typeof import.meta !== 'undefined' ? (import.meta as any).env ?? {} : {}
+const env: Partial<ImportMetaEnv> =
+  typeof import.meta !== "undefined" ? import.meta.env : {}
 
 const supabaseUrl: string =
   env.VITE_SUPABASE_URL ||

@@ -1,21 +1,18 @@
 import { useState, useMemo, useEffect, useRef } from "react";
-import { useNavigate } from "react-router-dom";
-import { LogOut, RefreshCw, Calendar } from "lucide-react";
+import { RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { useAuth } from "@/hooks/useAuth";
 import { useAppointments } from "@/hooks/useAppointments";
 import DashboardCounters from "@/components/DashboardCounters";
 import AppointmentFilters from "@/components/AppointmentFilters";
 import AppointmentsTable from "@/components/AppointmentsTable";
 import EditAppointmentDialog from "@/components/EditAppointmentDialog";
+import AppMenuBar from "@/components/AppMenuBar";
 import { supabase } from "@/integrations/supabase/client";
 import type { Database } from "@/integrations/supabase/types";
 
 type Appointment = Database["public"]["Tables"]["appointments"]["Row"];
 
 const Dashboard = () => {
-  const navigate = useNavigate();
-  const { user, signOut } = useAuth();
   const { appointments, loading, updateAppointment, refetch } = useAppointments();
 
   // Audio ref for notification sound
@@ -101,11 +98,6 @@ const Dashboard = () => {
     };
   }, [refetch]);
 
-  const handleSignOut = async () => {
-    await signOut();
-    navigate("/auth", { replace: true });
-  };
-
   const handleEdit = (appointment: Appointment) => {
     setEditingAppointment(appointment);
     setDialogOpen(true);
@@ -135,60 +127,23 @@ const Dashboard = () => {
 
   return (
     <div className="min-h-screen bg-background">
-      {/* Header */}
-      <header className="sticky top-0 z-50 bg-card border-b shadow-sm">
-        <div className="container max-w-7xl mx-auto px-4 py-4">
-          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-lg bg-primary flex items-center justify-center">
-                <Calendar className="w-5 h-5 text-primary-foreground" />
-              </div>
-              <div>
-                <h1 className="text-xl font-bold text-foreground">
-                  Clinic Appointments
-                </h1>
-                <p className="text-sm text-muted-foreground hidden sm:block">
-                  {user?.email}
-                </p>
-              </div>
-            </div>
-
-            <div className="flex items-center gap-2">
-              <Button
-                className="bg-green-500 text-white"
-                size="sm"
-                onClick={() => navigate('/whatsapp-messages')}
-              >
-                WhatsApp Messages
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={refetch}
-                disabled={loading}
-              >
-                <RefreshCw
-                  className={`h-4 w-4 mr-2 ${loading ? "animate-spin" : ""}`}
-                />
-                Refresh
-              </Button>
-              
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={handleSignOut}
-                className="text-destructive hover:text-destructive hover:bg-destructive/10"
-              >
-                <LogOut className="h-4 w-4 mr-2" />
-                Logout
-              </Button>
-            </div>
-          </div>
-        </div>
-      </header>
+      <AppMenuBar />
 
       {/* Main Content */}
       <main className="container max-w-7xl mx-auto px-4 py-6">
+        <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <h1 className="text-2xl font-semibold tracking-tight">Dashboard</h1>
+            <p className="text-sm text-muted-foreground">
+              Overview of appointments, filters, and quick actions.
+            </p>
+          </div>
+          <Button variant="outline" size="sm" onClick={refetch} disabled={loading}>
+            <RefreshCw className={`mr-2 h-4 w-4 ${loading ? "animate-spin" : ""}`} />
+            Refresh
+          </Button>
+        </div>
+
         <DashboardCounters appointments={appointments} loading={loading} />
 
         <AppointmentFilters

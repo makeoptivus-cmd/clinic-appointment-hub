@@ -18,56 +18,86 @@ export type Database = {
         Row: {
           admin_note: string | null
           age: number | null
+          amount: number
           appointment_type: string | null
           assigned_to: string | null
+          cancelled_at: string | null
+          cancelled_reason: string | null
           created_at: string
+          fixed_by?: string | null
           full_name: string
           gender: string | null
           id: string
+          message_sent: boolean
           mobile_number: string
           patient_response: string | null
           preferred_date: string
           preferred_time: string | null
           problem: string | null
+          rescheduled_from_date: string | null
+          rescheduled_from_time: string | null
           status: string
+          timeline: Json
           updated_at: string
-          message_sent: boolean
+          whatsapp_delivery_status: string
+          whatsapp_delivery_updated_at: string | null
+          whatsapp_message_id: string | null
         }
         Insert: {
           admin_note?: string | null
           age?: number | null
+          amount?: number
           appointment_type?: string | null
           assigned_to?: string | null
+          cancelled_at?: string | null
+          cancelled_reason?: string | null
           created_at?: string
+          fixed_by?: string | null
           full_name: string
           gender?: string | null
           id?: string
+          message_sent?: boolean
           mobile_number: string
           patient_response?: string | null
           preferred_date: string
           preferred_time?: string | null
           problem?: string | null
+          rescheduled_from_date?: string | null
+          rescheduled_from_time?: string | null
           status?: string
+          timeline?: Json
           updated_at?: string
-          message_sent?: boolean
+          whatsapp_delivery_status?: string
+          whatsapp_delivery_updated_at?: string | null
+          whatsapp_message_id?: string | null
         }
         Update: {
           admin_note?: string | null
           age?: number | null
+          amount?: number
           appointment_type?: string | null
           assigned_to?: string | null
+          cancelled_at?: string | null
+          cancelled_reason?: string | null
           created_at?: string
+          fixed_by?: string | null
           full_name?: string
           gender?: string | null
           id?: string
+          message_sent?: boolean
           mobile_number?: string
           patient_response?: string | null
           preferred_date?: string
           preferred_time?: string | null
           problem?: string | null
+          rescheduled_from_date?: string | null
+          rescheduled_from_time?: string | null
           status?: string
+          timeline?: Json
           updated_at?: string
-          message_sent?: boolean
+          whatsapp_delivery_status?: string
+          whatsapp_delivery_updated_at?: string | null
+          whatsapp_message_id?: string | null
         }
         Relationships: []
       }

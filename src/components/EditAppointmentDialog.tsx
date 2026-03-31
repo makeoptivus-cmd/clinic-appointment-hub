@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import dayjs from "dayjs";
 import {
   Dialog,
   DialogContent,
@@ -31,9 +32,11 @@ import { Input } from "@/components/ui/input";
 import { Loader2, Save, CalendarPlus, Upload, X, FileImage, ZoomIn } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import type { Database } from "@/integrations/supabase/types";
+import { createTimelineEvent, parseTimeline, type TimelineEvent } from "@/lib/appointmentTimeline";
 
 type Appointment = Database["public"]["Tables"]["appointments"]["Row"];
 type AppointmentUpdate = Database["public"]["Tables"]["appointments"]["Update"];
+type AppointmentUpdatePayload = AppointmentUpdate & { assessment_images?: string[] | null };
 
 interface EditAppointmentDialogProps {
   appointment: Appointment | null;
@@ -86,7 +89,7 @@ const compressImage = async (file: File, maxSizeMB: number = 0.95): Promise<Blob
         ctx.drawImage(img, 0, 0, width, height);
 
         // Start with high quality
-        let quality = 0.9;
+        const quality = 0.9;
         const targetSize = maxSizeMB * 1024 * 1024;
 
         const tryCompress = (currentQuality: number) => {
@@ -130,6 +133,12 @@ const EditAppointmentDialog = ({
   const [appointmentType, setAppointmentType] = useState("");
   const [assignedTo, setAssignedTo] = useState("");
   const [saving, setSaving] = useState(false);
+  const [preferredDate, setPreferredDate] = useState("");
+  const [preferredTime, setPreferredTime] = useState("");
+  const [rescheduleReason, setRescheduleReason] = useState("");
+  const [cancelReason, setCancelReason] = useState("");
+  const [amount, setAmount] = useState("0");
+  const [timeline, setTimeline] = useState<TimelineEvent[]>([]);
   
   // Follow-up appointment fields
   const [uptoDate, setUptoDate] = useState("");
@@ -185,8 +194,18 @@ const EditAppointmentDialog = ({
       setAdminNote(appointment.admin_note || "");
       setAppointmentType(appointment.appointment_type || "New Patient");
       setAssignedTo(appointment.assigned_to || "");
+      setPreferredDate(appointment.preferred_date || "");
+      setPreferredTime(appointment.preferred_time ? appointment.preferred_time.slice(0, 5) : "");
+      setRescheduleReason("");
+      setCancelReason(appointment.cancelled_reason || "");
+      setAmount(String(appointment.amount ?? 0));
+      setTimeline(parseTimeline(appointment.timeline));
       
-      const imagePaths = (appointment as any).assessment_images || [];
+      const maybeImages = (appointment as Appointment & { assessment_images?: unknown })
+        .assessment_images;
+      const imagePaths = Array.isArray(maybeImages)
+        ? maybeImages.filter((img): img is string => typeof img === "string")
+        : [];
       setAssessmentImagePaths(imagePaths);
       loadImageUrls(imagePaths);
       
@@ -252,7 +271,7 @@ const EditAppointmentDialog = ({
 
         // Compress the image before uploading
         let fileToUpload: Blob = file;
-        let originalSize = file.size;
+        const originalSize = file.size;
         
         // Only compress if file is larger than 1 MB
         if (file.size > 1024 * 1024) {
@@ -296,7 +315,7 @@ const EditAppointmentDialog = ({
         const newPaths = [...assessmentImagePaths, ...uploadedPaths];
         setAssessmentImagePaths(newPaths);
         await loadImageUrls(newPaths);
-        alert(`✅ Successfully uploaded ${uploadedPaths.length} image(s)`);
+        alert(`Successfully uploaded ${uploadedPaths.length} image(s)`);
       }
     } catch (error) {
       console.error('Error uploading images:', error);
@@ -357,6 +376,10 @@ const EditAppointmentDialog = ({
         appointment_type: 'Follow-up',
         assigned_to: assignedTo || appointment.assigned_to,
         admin_note: `Follow-up appointment created from ${appointment.preferred_date}`,
+        message_sent: false,
+        whatsapp_delivery_status: "pending",
+        amount: appointment.amount ?? 0,
+        timeline: [createTimelineEvent("created", `Follow-up appointment created from ${appointment.preferred_date}`)],
       }));
 
       const { error } = await supabase
@@ -381,19 +404,65 @@ const EditAppointmentDialog = ({
 
     setSaving(true);
 
-    const success = await onSave(appointment.id, {
+    const parsedAmount = amount.trim() === "" ? 0 : Number(amount);
+    if (Number.isNaN(parsedAmount) || parsedAmount < 0) {
+      alert("Enter a valid non-negative amount.");
+      setSaving(false);
+      return;
+    }
+
+    const originalTime = appointment.preferred_time ? appointment.preferred_time.slice(0, 5) : "";
+    const isRescheduled =
+      preferredDate !== appointment.preferred_date || preferredTime !== originalTime;
+    const statusChanged = status !== appointment.status;
+    const nowIso = new Date().toISOString();
+    const updatedTimeline = [...timeline];
+
+    if (isRescheduled) {
+      const fromText = `${appointment.preferred_date}${appointment.preferred_time ? ` ${appointment.preferred_time}` : ""}`;
+      const toText = `${preferredDate}${preferredTime ? ` ${preferredTime}` : ""}`;
+      updatedTimeline.push(
+        createTimelineEvent(
+          "rescheduled",
+          `Rescheduled from ${fromText} to ${toText}${rescheduleReason ? ` (${rescheduleReason})` : ""}`
+        )
+      );
+    }
+
+    if (statusChanged) {
+      updatedTimeline.push(
+        createTimelineEvent(
+          status === "Cancelled" ? "cancelled" : "status_changed",
+          status === "Cancelled"
+            ? `Appointment cancelled${cancelReason ? `: ${cancelReason}` : ""}`
+            : `Status changed from ${appointment.status} to ${status}`
+        )
+      );
+    }
+
+    const updates: AppointmentUpdatePayload = {
       status,
       patient_response: patientResponse === "none" ? null : patientResponse,
       admin_note: adminNote || null,
       appointment_type: appointmentType || null,
       assigned_to: assignedTo || null,
       assessment_images: assessmentImagePaths.length > 0 ? assessmentImagePaths : null,
-    } as any);
+      preferred_date: preferredDate,
+      preferred_time: preferredTime || null,
+      amount: parsedAmount,
+      rescheduled_from_date: isRescheduled ? appointment.preferred_date : appointment.rescheduled_from_date,
+      rescheduled_from_time: isRescheduled ? appointment.preferred_time : appointment.rescheduled_from_time,
+      cancelled_reason: status === "Cancelled" ? cancelReason || null : null,
+      cancelled_at: status === "Cancelled" ? (appointment.cancelled_at || nowIso) : null,
+      timeline: updatedTimeline,
+    };
+
+    const success = await onSave(appointment.id, updates);
 
     if (success && selectedDates.length > 0) {
       const followUpSuccess = await createFollowUpAppointments();
       if (followUpSuccess) {
-        alert(`✅ Updated appointment and created ${selectedDates.length} follow-up appointments!`);
+        alert(`Updated appointment and created ${selectedDates.length} follow-up appointments!`);
       }
     }
 
@@ -444,6 +513,64 @@ const EditAppointmentDialog = ({
                 </SelectContent>
               </Select>
             </div>
+
+            {/* Reschedule */ }
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div className="space-y-2">
+                <Label htmlFor="preferred-date" className="text-sm font-medium">
+                  Preferred Date
+                </Label>
+                <Input
+                  id="preferred-date"
+                  type="date"
+                  value={preferredDate}
+                  onChange={(e) => setPreferredDate(e.target.value)}
+                  className="h-11"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="preferred-time" className="text-sm font-medium">
+                  Preferred Time
+                </Label>
+                <Input
+                  id="preferred-time"
+                  type="time"
+                  value={preferredTime}
+                  onChange={(e) => setPreferredTime(e.target.value)}
+                  className="h-11"
+                />
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="reschedule-reason" className="text-sm font-medium">
+                Reschedule Note (Optional)
+              </Label>
+              <Textarea
+                id="reschedule-reason"
+                value={rescheduleReason}
+                onChange={(e) => setRescheduleReason(e.target.value)}
+                placeholder="Reason for reschedule..."
+                rows={2}
+                className="resize-none"
+              />
+            </div>
+
+            {status === "Cancelled" && (
+              <div className="space-y-2">
+                <Label htmlFor="cancel-reason" className="text-sm font-medium">
+                  Cancellation Reason
+                </Label>
+                <Textarea
+                  id="cancel-reason"
+                  value={cancelReason}
+                  onChange={(e) => setCancelReason(e.target.value)}
+                  placeholder="Reason for cancellation..."
+                  rows={2}
+                  className="resize-none"
+                />
+              </div>
+            )}
 
             {/* Patient Response */}
             <div className="space-y-2">
@@ -498,6 +625,23 @@ const EditAppointmentDialog = ({
               />
             </div>
 
+            {/* Amount */ }
+            <div className="space-y-2">
+              <Label htmlFor="amount" className="text-sm font-medium">
+                Consultation Amount
+              </Label>
+              <Input
+                id="amount"
+                type="number"
+                step="0.01"
+                min={0}
+                value={amount}
+                onChange={(e) => setAmount(e.target.value)}
+                placeholder="0.00"
+                className="h-11"
+              />
+            </div>
+
             {/* Admin Note */}
             <div className="space-y-2">
               <Label htmlFor="note" className="text-sm font-medium">
@@ -511,6 +655,32 @@ const EditAppointmentDialog = ({
                 rows={3}
                 className="resize-none"
               />
+            </div>
+
+            {/* Timeline */}
+            <div className="pt-2 space-y-3 border-t">
+              <Label className="text-sm font-semibold">Appointment Timeline</Label>
+              <div className="max-h-52 overflow-y-auto rounded-lg border bg-muted/20 p-3 space-y-2">
+                {timeline.length === 0 ? (
+                  <p className="text-xs text-muted-foreground">
+                    No timeline entries yet.
+                  </p>
+                ) : (
+                  [...timeline]
+                    .sort((a, b) => dayjs(b.at).valueOf() - dayjs(a.at).valueOf())
+                    .map((event) => (
+                      <div key={event.id} className="rounded-md border bg-background p-2">
+                        <p className="text-xs font-medium uppercase tracking-wide text-primary">
+                          {event.type.replace("_", " ")}
+                        </p>
+                        <p className="text-xs text-muted-foreground">
+                          {dayjs(event.at).format("DD MMM YYYY, hh:mm A")}
+                        </p>
+                        <p className="text-sm">{event.details}</p>
+                      </div>
+                    ))
+                )}
+              </div>
             </div>
 
             {/* Assessment Images Upload */}
@@ -658,7 +828,7 @@ const EditAppointmentDialog = ({
                   {selectedDates.length > 0 && (
                     <div className="bg-green-50 border border-green-200 rounded-lg p-3">
                       <p className="text-sm text-green-700 font-medium">
-                        ✓ {selectedDates.length} follow-up appointment{selectedDates.length > 1 ? 's' : ''} will be created automatically
+                        Selected: {selectedDates.length} follow-up appointment{selectedDates.length > 1 ? "s" : ""} will be created automatically
                       </p>
                     </div>
                   )}

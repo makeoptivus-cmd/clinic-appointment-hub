@@ -10,8 +10,7 @@ export function useAuthDiagnostics() {
   const [error, setError] = React.useState<string | null>(null)
 
   const envOk = React.useMemo(() => {
-    const url = (import.meta as any).env?.VITE_SUPABASE_URL
-    const key = (import.meta as any).env?.VITE_SUPABASE_PUBLISHABLE_KEY
+    const { VITE_SUPABASE_URL: url, VITE_SUPABASE_PUBLISHABLE_KEY: key } = import.meta.env
     return Boolean(url && key)
   }, [])
 
@@ -20,8 +19,8 @@ export function useAuthDiagnostics() {
       try {
         const { data } = await supabase.auth.getSession()
         setSessionUserId(data.session?.user?.id ?? null)
-      } catch (e: any) {
-        setError(e?.message ?? 'Failed to get session')
+      } catch (e: unknown) {
+        setError(e instanceof Error ? e.message : 'Failed to get session')
       }
     }
     init()
