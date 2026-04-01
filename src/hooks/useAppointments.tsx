@@ -42,25 +42,47 @@ export const useAppointments = () => {
         updated_at: new Date().toISOString(),
       };
 
+      // Filter out keys that don't exist in the current database schema
+      // This prevents API crashes when frontend UI references fields from pending migrations
+      const existingAppt = appointments.find(a => a.id === id);
+      const safeUpdates: any = {};
+      const droppedKeys: string[] = [];
+      
+      if (existingAppt) {
+        Object.keys(updatesWithTimestamp).forEach(key => {
+           if (key in existingAppt) {
+             safeUpdates[key] = (updatesWithTimestamp as any)[key];
+           } else {
+             droppedKeys.push(key);
+           }
+        });
+      }
+      
+      const finalUpdates = existingAppt ? safeUpdates : updatesWithTimestamp;
+
+      if (droppedKeys.length > 0) {
+        console.warn(`[Supabase Update] Dropped keys missing from schema: ${droppedKeys.join(", ")}. Please apply pending database migrations!`);
+      }
+
       const { data, error: updateError } = await supabase
         .from("appointments")
-        .update(updatesWithTimestamp)
+        .update(finalUpdates)
         .eq("id", id)
         .select();
 
       if (updateError) {
         // Log full error details for debugging
-        console.error("Update error:", updateError, { id, updates: updatesWithTimestamp });
+        console.error("Update error:", updateError, { id, updates: finalUpdates });
         
         // Check for RLS policy violation
         if (updateError.code === "42501" || updateError.message.includes("policy")) {
           throw new Error("Permission denied. Please make sure you are logged in.");
         }
-        throw updateError;
+        throw new Error(updateError.message || "Database update failed");
       }
       
       if (!data || data.length === 0) {
-        console.warn("No data returned from update - appointment may not exist", { id, updates: updatesWithTimestamp });
+        console.warn("No data returned from update - appointment may not exist", { id, updates: finalUpdates });
         throw new Error("Appointment not found or update failed");
       }
       

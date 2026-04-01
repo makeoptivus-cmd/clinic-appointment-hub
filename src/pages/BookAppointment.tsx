@@ -247,7 +247,22 @@ const BookAppointment = () => {
     setLoading(true);
     setFeedback(null);
     try {
-      const { error } = await createRow<AppointmentInsert>("appointments", payload);
+      // Dynamically detect valid schema columns to safely drop fields from pending migrations
+      const { data } = await readRows<AppointmentRow>("appointments", { limit: 1 });
+      let finalPayload = payload;
+      
+      if (data && data.length > 0) {
+        const validKeys = Object.keys(data[0]);
+        const safePayload: any = {};
+        Object.keys(payload).forEach(key => {
+          if (validKeys.includes(key)) {
+            safePayload[key] = (payload as any)[key];
+          }
+        });
+        finalPayload = safePayload as AppointmentInsert;
+      }
+
+      const { error } = await createRow<AppointmentInsert>("appointments", finalPayload);
       if (error) {
         setFeedback({ type: "error", text: error.message || "Failed to create appointment." });
         return false;

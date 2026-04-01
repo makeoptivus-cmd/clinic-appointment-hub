@@ -364,23 +364,32 @@ const EditAppointmentDialog = ({
     if (!appointment || selectedDates.length === 0) return false;
 
     try {
-      const followUpAppointments = selectedDates.map(date => ({
-        full_name: appointment.full_name,
-        mobile_number: appointment.mobile_number,
-        problem: appointment.problem,
-        preferred_date: date,
-        preferred_time: appointment.preferred_time,
-        age: appointment.age,
-        gender: appointment.gender,
-        status: 'Confirmed',
-        appointment_type: 'Follow-up',
-        assigned_to: assignedTo || appointment.assigned_to,
-        admin_note: `Follow-up appointment created from ${appointment.preferred_date}`,
-        message_sent: false,
-        whatsapp_delivery_status: "pending",
-        amount: appointment.amount ?? 0,
-        timeline: [createTimelineEvent("created", `Follow-up appointment created from ${appointment.preferred_date}`)],
-      }));
+      const followUpAppointments = selectedDates.map(date => {
+        const newAppt: any = {
+          full_name: appointment.full_name,
+          mobile_number: appointment.mobile_number,
+          problem: appointment.problem,
+          preferred_date: date,
+          preferred_time: appointment.preferred_time,
+          age: appointment.age,
+          gender: appointment.gender,
+          status: 'Confirmed',
+          appointment_type: 'Follow-up',
+          assigned_to: assignedTo || appointment.assigned_to,
+          admin_note: `Follow-up appointment created from ${appointment.preferred_date}`,
+          message_sent: false,
+          whatsapp_delivery_status: "pending",
+          amount: appointment.amount ?? 0,
+          timeline: [createTimelineEvent("created", `Follow-up appointment created from ${appointment.preferred_date}`)],
+        };
+        const safeAppt: any = {};
+        Object.keys(newAppt).forEach(key => {
+          if (key in appointment) {
+            safeAppt[key] = newAppt[key];
+          }
+        });
+        return safeAppt;
+      });
 
       const { error } = await supabase
         .from('appointments')
