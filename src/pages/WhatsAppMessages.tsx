@@ -16,10 +16,10 @@ import { MessageCircle, Check, Send, Users, Calendar, Loader2, CheckCheck, ListF
 
 const messageTemplates = {
   session_reminder: "Hi {name}, this is a reminder for your physio session today. Please don't miss it!",
-  missed_session: "Hi {name}, you missed your session today. Want to reschedule?",
+  missed_session: "Hi {name}, you missed your session today. Want to reschedule? Book an appointment or call: https://www.jnphysio.in/",
   common_message: "Hi {name}, here is a message from our clinic!",
   session_not_completed_10days:
-    "Hi {name}, it has been 10 days since your appointment. Please complete your session or let us know if you need help.",
+    "Hi {name}, it has been 10 days since your appointment. Please complete your session or let us know if you need help. Book an appointment or call: https://www.jnphysio.in/",
 };
 
 type Appointment = Database['public']['Tables']['appointments']['Row'];
