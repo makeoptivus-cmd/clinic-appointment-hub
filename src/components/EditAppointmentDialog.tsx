@@ -52,7 +52,7 @@ const patientResponses = [
   "Call Not Answered",
   "Asked to Reschedule",
 ];
-const appointmentTypes = ["New Patient", "Follow-up"];
+const appointmentTypes = ["New Patient", "Follow-up", "Old with New Problem"];
 
 // Image compression function
 const compressImage = async (file: File, maxSizeMB: number = 0.95): Promise<Blob> => {
@@ -120,14 +120,16 @@ const compressImage = async (file: File, maxSizeMB: number = 0.95): Promise<Blob
     reader.onerror = () => reject(new Error('Failed to read file'));
   });
 };
-
-const EditAppointmentDialog = ({
+const EditAppointmentDialog = ({
   appointment,
   open,
   onOpenChange,
   onSave,
 }: EditAppointmentDialogProps) => {
   const [status, setStatus] = useState("");
+  const [fullName, setFullName] = useState("");
+  const [age, setAge] = useState("");
+  const [mobileNumber, setMobileNumber] = useState("");
   const [patientResponse, setPatientResponse] = useState("");
   const [adminNote, setAdminNote] = useState("");
   const [appointmentType, setAppointmentType] = useState("");
@@ -137,8 +139,14 @@ const EditAppointmentDialog = ({
   const [preferredTime, setPreferredTime] = useState("");
   const [rescheduleReason, setRescheduleReason] = useState("");
   const [cancelReason, setCancelReason] = useState("");
-  const [amount, setAmount] = useState("0");
   const [timeline, setTimeline] = useState<TimelineEvent[]>([]);
+  const [savingProfile, setSavingProfile] = useState(false);
+
+  const hasProfileChanges = appointment ? (
+    fullName.trim() !== (appointment.full_name || "").trim() ||
+    mobileNumber.trim() !== (appointment.mobile_number || "").trim() ||
+    age.trim() !== (appointment.age?.toString() || "").trim()
+  ) : false;
   
   // Follow-up appointment fields
   const [uptoDate, setUptoDate] = useState("");
@@ -189,6 +197,9 @@ const EditAppointmentDialog = ({
 
   useEffect(() => {
     if (appointment) {
+      setFullName(appointment.full_name || "");
+      setAge(appointment.age?.toString() || "");
+      setMobileNumber(appointment.mobile_number || "");
       setStatus(appointment.status || "New");
       setPatientResponse(appointment.patient_response || "none");
       setAdminNote(appointment.admin_note || "");
@@ -198,7 +209,6 @@ const EditAppointmentDialog = ({
       setPreferredTime(appointment.preferred_time ? appointment.preferred_time.slice(0, 5) : "");
       setRescheduleReason("");
       setCancelReason(appointment.cancelled_reason || "");
-      setAmount(String(appointment.amount ?? 0));
       setTimeline(parseTimeline(appointment.timeline));
       
       const maybeImages = (appointment as Appointment & { assessment_images?: unknown })
@@ -408,17 +418,40 @@ const EditAppointmentDialog = ({
     }
   };
 
+  const handleSaveProfile = async () => {
+    if (!appointment) return;
+    setSavingProfile(true);
+
+    if (!fullName.trim()) {
+      alert("Full name is required.");
+      setSavingProfile(false);
+      return;
+    }
+    if (!mobileNumber.trim()) {
+      alert("Mobile number is required.");
+      setSavingProfile(false);
+      return;
+    }
+
+    const updates: AppointmentUpdatePayload = {
+      full_name: fullName.trim(),
+      mobile_number: mobileNumber.trim(),
+      age: age.trim() ? parseInt(age.trim(), 10) : null,
+    };
+
+    const success = await onSave(appointment.id, updates);
+    if (success) {
+      alert("Profile updated successfully!");
+    }
+    setSavingProfile(false);
+  };
+
   const handleSave = async () => {
     if (!appointment) return;
 
     setSaving(true);
 
-    const parsedAmount = amount.trim() === "" ? 0 : Number(amount);
-    if (Number.isNaN(parsedAmount) || parsedAmount < 0) {
-      alert("Enter a valid non-negative amount.");
-      setSaving(false);
-      return;
-    }
+
 
     const originalTime = appointment.preferred_time ? appointment.preferred_time.slice(0, 5) : "";
     const isRescheduled =
@@ -458,7 +491,6 @@ const EditAppointmentDialog = ({
       assessment_images: assessmentImagePaths.length > 0 ? assessmentImagePaths : null,
       preferred_date: preferredDate,
       preferred_time: preferredTime || null,
-      amount: parsedAmount,
       rescheduled_from_date: isRescheduled ? appointment.preferred_date : appointment.rescheduled_from_date,
       rescheduled_from_time: isRescheduled ? appointment.preferred_time : appointment.rescheduled_from_time,
       cancelled_reason: status === "Cancelled" ? cancelReason || null : null,
@@ -504,6 +536,52 @@ const EditAppointmentDialog = ({
           </DialogHeader>
 
           <div className="space-y-5 py-4">
+            {/* Profile Info */}
+            <div className="space-y-3 p-4 border rounded-md bg-muted/30 relative">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b pb-2">
+                <h3 className="font-semibold text-sm">Patient Profile</h3>
+                <Button 
+                  type="button" 
+                  variant="outline" 
+                  size="sm"
+                  onClick={handleSaveProfile}
+                  disabled={savingProfile || !hasProfileChanges}
+                >
+                  {savingProfile ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
+                  Save Profile Separately
+                </Button>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                <div className="space-y-2">
+                  <Label htmlFor="full-name" className="text-sm font-medium">Full Name</Label>
+                <Input
+                  id="full-name"
+                  value={fullName}
+                  onChange={(e) => setFullName(e.target.value)}
+                  className="h-11"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="age" className="text-sm font-medium">Age</Label>
+                <Input
+                  id="age"
+                  value={age}
+                  onChange={(e) => setAge(e.target.value)}
+                  className="h-11"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="mobile-number" className="text-sm font-medium">Mobile Number</Label>
+                <Input
+                  id="mobile-number"
+                  value={mobileNumber}
+                  onChange={(e) => setMobileNumber(e.target.value)}
+                  className="h-11"
+                />
+              </div>
+            </div>
+          </div>
+
             {/* Status */}
             <div className="space-y-2">
               <Label htmlFor="status" className="text-sm font-medium">
@@ -634,22 +712,7 @@ const EditAppointmentDialog = ({
               />
             </div>
 
-            {/* Amount */ }
-            <div className="space-y-2">
-              <Label htmlFor="amount" className="text-sm font-medium">
-                Consultation Amount
-              </Label>
-              <Input
-                id="amount"
-                type="number"
-                step="0.01"
-                min={0}
-                value={amount}
-                onChange={(e) => setAmount(e.target.value)}
-                placeholder="0.00"
-                className="h-11"
-              />
-            </div>
+
 
             {/* Admin Note */}
             <div className="space-y-2">
@@ -666,31 +729,6 @@ const EditAppointmentDialog = ({
               />
             </div>
 
-            {/* Timeline */}
-            <div className="pt-2 space-y-3 border-t">
-              <Label className="text-sm font-semibold">Appointment Timeline</Label>
-              <div className="max-h-52 overflow-y-auto rounded-lg border bg-muted/20 p-3 space-y-2">
-                {timeline.length === 0 ? (
-                  <p className="text-xs text-muted-foreground">
-                    No timeline entries yet.
-                  </p>
-                ) : (
-                  [...timeline]
-                    .sort((a, b) => dayjs(b.at).valueOf() - dayjs(a.at).valueOf())
-                    .map((event) => (
-                      <div key={event.id} className="rounded-md border bg-background p-2">
-                        <p className="text-xs font-medium uppercase tracking-wide text-primary">
-                          {event.type.replace("_", " ")}
-                        </p>
-                        <p className="text-xs text-muted-foreground">
-                          {dayjs(event.at).format("DD MMM YYYY, hh:mm A")}
-                        </p>
-                        <p className="text-sm">{event.details}</p>
-                      </div>
-                    ))
-                )}
-              </div>
-            </div>
 
             {/* Assessment Images Upload */}
             <div className="pt-2 space-y-3 border-t">

@@ -27,8 +27,6 @@ const toCsv = (rows: Appointment[]) => {
     "Mobile",
     "Status",
     "Problem",
-    "Amount",
-    "WhatsApp Delivery",
     "Updated At",
   ];
   const lines = rows.map((row) =>
@@ -39,11 +37,9 @@ const toCsv = (rows: Appointment[]) => {
       row.mobile_number,
       row.status,
       row.problem ?? "",
-      String(row.amount ?? 0),
-      row.whatsapp_delivery_status ?? "pending",
       row.updated_at,
     ]
-      .map((cell) => `"${String(cell).replaceAll(`"`, `""`)}`)
+      .map((cell) => `"${String(cell).replace(/"/g, '""')}"`)
       .join(",")
   );
   return [headers.join(","), ...lines].join("\n");
@@ -60,7 +56,7 @@ const downloadCsv = (filename: string, rows: Appointment[]) => {
   URL.revokeObjectURL(url);
 };
 
-const printPdf = (title: string, rows: Appointment[], revenue: number) => {
+const printPdf = (title: string, rows: Appointment[]) => {
   const htmlRows = rows
     .map(
       (row) => `
@@ -71,7 +67,6 @@ const printPdf = (title: string, rows: Appointment[], revenue: number) => {
         <td>${row.mobile_number}</td>
         <td>${row.status}</td>
         <td>${row.problem ?? "-"}</td>
-        <td>${row.amount ?? 0}</td>
       </tr>`
     )
     .join("");
@@ -83,7 +78,6 @@ const printPdf = (title: string, rows: Appointment[], revenue: number) => {
         <style>
           body { font-family: Arial, sans-serif; padding: 20px; }
           h1 { margin-bottom: 4px; }
-          p { margin-top: 0; color: #555; }
           table { width: 100%; border-collapse: collapse; font-size: 12px; margin-top: 12px; }
           th, td { border: 1px solid #ddd; padding: 6px; text-align: left; }
           th { background: #f4f4f4; }
@@ -91,11 +85,10 @@ const printPdf = (title: string, rows: Appointment[], revenue: number) => {
       </head>
       <body>
         <h1>${title}</h1>
-        <p>Revenue: ${currency.format(revenue)}</p>
         <table>
           <thead>
             <tr>
-              <th>Date</th><th>Time</th><th>Name</th><th>Mobile</th><th>Status</th><th>Problem</th><th>Amount</th>
+              <th>Date</th><th>Time</th><th>Name</th><th>Mobile</th><th>Status</th><th>Problem</th>
             </tr>
           </thead>
           <tbody>${htmlRows}</tbody>
@@ -117,7 +110,7 @@ const Reports = () => {
   const [range, setRange] = useState<ReportRange>("daily");
   const [anchorDate, setAnchorDate] = useState(format(new Date(), "yyyy-MM-dd"));
 
-  const { filtered, dailyCount, weeklyCount, pendingCount, revenue } = useMemo(() => {
+  const { filtered, dailyCount, weeklyCount, pendingCount } = useMemo(() => {
     const anchor = parseISO(anchorDate);
     const dailyStart = anchor;
     const dailyEnd = anchor;
@@ -139,16 +132,12 @@ const Reports = () => {
       isWithinInterval(parseISO(a.preferred_date), { start: weekStart, end: weekEnd })
     ).length;
     const pending = filteredRows.filter((a) => ["New", "Confirmed"].includes(a.status)).length;
-    const revenueSum = filteredRows
-      .filter((a) => !["Cancelled", "No Show"].includes(a.status))
-      .reduce((sum, a) => sum + Number(a.amount ?? 0), 0);
 
     return {
       filtered: filteredRows,
       dailyCount: daily,
       weeklyCount: weekly,
       pendingCount: pending,
-      revenue: revenueSum,
     };
   }, [appointments, range, anchorDate]);
 
@@ -159,7 +148,7 @@ const Reports = () => {
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Reports</h1>
           <p className="text-sm text-muted-foreground">
-            Daily, weekly, pending, revenue insights with export and backup options.
+            Daily, weekly, pending insights with export and backup options.
           </p>
         </div>
 
@@ -192,7 +181,7 @@ const Reports = () => {
               </Button>
               <Button
                 className="w-full md:w-auto"
-                onClick={() => printPdf(`Clinic Report (${range}) - ${anchorDate}`, filtered, revenue)}
+                onClick={() => printPdf(`Clinic Report (${range}) - ${anchorDate}`, filtered)}
                 disabled={loading}
               >
                 <FileText className="mr-2 h-4 w-4" />
@@ -202,7 +191,7 @@ const Reports = () => {
           </CardContent>
         </Card>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
           <Card>
             <CardHeader className="pb-2">
               <CardDescription>Daily Appointments</CardDescription>
@@ -219,15 +208,6 @@ const Reports = () => {
             <CardHeader className="pb-2">
               <CardDescription>Pending ({range})</CardDescription>
               <CardTitle>{pendingCount}</CardTitle>
-            </CardHeader>
-          </Card>
-          <Card>
-            <CardHeader className="pb-2">
-              <CardDescription>Revenue ({range})</CardDescription>
-              <CardTitle className="inline-flex items-center gap-1">
-                <TrendingUp className="h-4 w-4" />
-                {currency.format(revenue)}
-              </CardTitle>
             </CardHeader>
           </Card>
         </div>
@@ -248,8 +228,6 @@ const Reports = () => {
                     <th className="p-2 text-left">Phone</th>
                     <th className="p-2 text-left">Status</th>
                     <th className="p-2 text-left">Problem</th>
-                    <th className="p-2 text-left">Amount</th>
-                    <th className="p-2 text-left">WhatsApp</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -261,8 +239,6 @@ const Reports = () => {
                       <td className="p-2">{a.mobile_number}</td>
                       <td className="p-2">{a.status}</td>
                       <td className="p-2">{a.problem || "-"}</td>
-                      <td className="p-2">{currency.format(Number(a.amount ?? 0))}</td>
-                      <td className="p-2 capitalize">{a.whatsapp_delivery_status || "pending"}</td>
                     </tr>
                   ))}
                 </tbody>

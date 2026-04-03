@@ -1,5 +1,6 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { format, isToday, parseISO } from "date-fns";
+import { supabase } from "@/integrations/supabase/client";
 import { Phone, Edit2, Loader2, MessageSquare } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import StatusBadge from "./StatusBadge";
@@ -26,6 +27,33 @@ const AppointmentsTable = ({
   onEdit,
 }: AppointmentsTableProps) => {
   const [selectedNote, setSelectedNote] = useState<{ name: string; note: string } | null>(null);
+  const [masterProfilePhone, setMasterProfilePhone] = useState<string | null>(null);
+  const [masterProfileData, setMasterProfileData] = useState<Appointment[] | null>(null);
+  const [loadingProfile, setLoadingProfile] = useState(false);
+
+  useEffect(() => {
+    if (!masterProfilePhone) {
+      setMasterProfileData(null);
+      return;
+    }
+    const fetchProfile = async () => {
+      setLoadingProfile(true);
+      const { data } = await supabase
+        .from("appointments")
+        .select("*")
+        .eq("mobile_number", masterProfilePhone)
+        .order("preferred_date", { ascending: false });
+      setMasterProfileData(data || []);
+      setLoadingProfile(false);
+    };
+    fetchProfile();
+  }, [masterProfilePhone]);
+
+  const handlePatientClick = (e: React.MouseEvent, appointment: Appointment) => {
+    if (e.detail === 3) {
+      setMasterProfilePhone(appointment.mobile_number);
+    }
+  };
 
   const formatTime = (time: string | null) => {
     if (!time) return "-";
@@ -93,8 +121,8 @@ const AppointmentsTable = ({
                   isAppointmentToday(appointment.preferred_date) && "today-row"
                 )}
               >
-                <td className="p-4">
-                  <div>
+                <td className="p-4" onClick={(e) => handlePatientClick(e, appointment)}>
+                  <div className="cursor-pointer select-none">
                     <p className="font-medium">{appointment.full_name}</p>
                     {appointment.age && appointment.gender && (
                       <p className="text-sm text-muted-foreground">
@@ -183,7 +211,7 @@ const AppointmentsTable = ({
             )}
           >
             <div className="flex justify-between items-start mb-3">
-              <div>
+              <div className="cursor-pointer select-none" onClick={(e) => handlePatientClick(e, appointment)}>
                 <p className="font-semibold text-lg">{appointment.full_name}</p>
                 {appointment.age && appointment.gender && (
                   <p className="text-sm text-muted-foreground">
@@ -297,6 +325,75 @@ const AppointmentsTable = ({
                 {selectedNote?.note}
               </p>
             </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Master Profile Modal */}
+      <Dialog open={!!masterProfilePhone} onOpenChange={(open) => !open && setMasterProfilePhone(null)}>
+        <DialogContent className="sm:max-w-[600px] max-h-[85vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-xl pb-2 border-b">
+              Patient Master Profile
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 pt-2">
+            {loadingProfile ? (
+              <div className="flex items-center justify-center p-8">
+                <Loader2 className="h-8 w-8 animate-spin text-primary" />
+              </div>
+            ) : masterProfileData && masterProfileData.length > 0 ? (
+              <>
+                <div className="bg-muted/30 p-4 rounded-lg border">
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <p className="text-sm text-muted-foreground">Full Name</p>
+                      <p className="font-semibold text-lg">{masterProfileData[0].full_name}</p>
+                    </div>
+                    <div>
+                      <p className="text-sm text-muted-foreground">Mobile Number</p>
+                      <p className="font-medium">{masterProfileData[0].mobile_number}</p>
+                    </div>
+                    <div>
+                      <p className="text-sm text-muted-foreground">Age & Gender</p>
+                      <p className="font-medium">
+                        {masterProfileData[0].age || "-"} yrs, {masterProfileData[0].gender || "-"}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-sm text-muted-foreground">Total Visits</p>
+                      <p className="font-medium">{masterProfileData.length}</p>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="space-y-3">
+                  <h4 className="font-semibold text-sm border-b pb-2">Visit History</h4>
+                  <div className="space-y-3">
+                    {masterProfileData.map((visit) => (
+                      <div key={visit.id} className="p-3 border rounded-md text-sm space-y-2 bg-card">
+                        <div className="flex justify-between items-start">
+                          <span className="font-medium text-primary">
+                            {formatDate(visit.preferred_date)}
+                          </span>
+                          <StatusBadge status={visit.status} />
+                        </div>
+                        <div className="grid grid-cols-2 gap-2 text-xs">
+                          <p><span className="text-muted-foreground">Type:</span> {visit.appointment_type || "-"}</p>
+                          <p><span className="text-muted-foreground">Assigned:</span> {visit.assigned_to || "-"}</p>
+                          <p className="col-span-2"><span className="text-muted-foreground">Problem:</span> {visit.problem || "-"}</p>
+                          {visit.admin_note && (
+                            <p className="col-span-2"><span className="text-muted-foreground">Note:</span> {visit.admin_note}</p>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </>
+            ) : (
+              <p className="text-center text-muted-foreground">No records found.</p>
+            )}
           </div>
         </DialogContent>
       </Dialog>

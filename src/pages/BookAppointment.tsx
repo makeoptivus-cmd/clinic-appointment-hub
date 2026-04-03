@@ -197,6 +197,13 @@ const BookAppointment = () => {
     preferredTime: defaultTime,
   });
 
+  const [followUpDetails, setFollowUpDetails] = useState({
+    fullName: "",
+    age: "",
+    gender: "",
+    problem: "",
+  });
+
   const quickTimeSessions = useMemo(
     () => getSessionTimeOptions(dayjs(quickDate), referenceNow),
     [quickDate, referenceNow]
@@ -399,6 +406,12 @@ const BookAppointment = () => {
       }
       setBookingMode("existing");
       setSearchNotice(`Patient found: ${mostRecent.full_name}. Continue with follow-up booking.`);
+      setFollowUpDetails({
+        fullName: mostRecent.full_name || "",
+        age: mostRecent.age?.toString() || "",
+        gender: mostRecent.gender || "",
+        problem: mostRecent.problem || "",
+      });
     } catch (err) {
       setSearchError(err instanceof Error ? err.message : "Search failed.");
       setLatestPatient(null);
@@ -415,17 +428,28 @@ const BookAppointment = () => {
       return;
     }
 
+    if (!followUpDetails.fullName.trim()) {
+      setFeedback({ type: "error", text: "Patient name is required." });
+      return;
+    }
+
+    const parsedAge = followUpDetails.age.trim() ? Number(followUpDetails.age) : null;
+    if (parsedAge !== null && (Number.isNaN(parsedAge) || parsedAge < 0 || parsedAge > 120)) {
+      setFeedback({ type: "error", text: "Enter a valid age." });
+      return;
+    }
+
     const nowIso = new Date().toISOString();
     const timeline = [createTimelineEvent("created", "Follow-up appointment booked")];
     const ok = await saveAppointment({
-      full_name: patient.full_name,
+      full_name: followUpDetails.fullName.trim(),
       mobile_number: patient.mobile_number,
       preferred_date: quickDate,
       preferred_time: quickTime || null,
-      age: patient.age ?? null,
-      gender: patient.gender ?? null,
-      problem: patient.problem ?? null,
-      appointment_type: "Follow-up",
+      age: parsedAge,
+      gender: followUpDetails.gender || null,
+      problem: followUpDetails.problem || null,
+      appointment_type: followUpDetails.problem !== (patient.problem || "") ? "Old with New Problem" : "Follow-up",
       status: "New",
       message_sent: false,
       whatsapp_delivery_status: "pending",
@@ -669,26 +693,74 @@ const BookAppointment = () => {
                   </p>
                 </div>
               </div>
-              <div className="border rounded-lg p-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-                <div>
-                  <p className="font-semibold">{latestPatient.full_name}</p>
-                  <p className="text-sm text-muted-foreground">{latestPatient.mobile_number}</p>
-                  <p className="text-xs text-muted-foreground mt-1">
-                    Last visit: {dayjs(latestPatient.preferred_date).format("DD MMM YYYY")}
-                  </p>
-                  <p className="text-xs text-muted-foreground">
-                    Latest record updated:{" "}
-                    {dayjs(latestPatient.updated_at || latestPatient.created_at).format("DD MMM YYYY, h:mm A")}
-                  </p>
+              <div className="border rounded-lg p-4 space-y-4">
+                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 pb-2 border-b">
+                  <div>
+                    <h3 className="font-semibold text-lg">Patient Details</h3>
+                    <p className="text-sm text-muted-foreground">{latestPatient.mobile_number}</p>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      Last visit: {dayjs(latestPatient.preferred_date).format("DD MMM YYYY")}
+                    </p>
+                  </div>
                 </div>
-                <Button
-                  type="button"
-                  onClick={() => handleBookFollowUp(latestPatient)}
-                  disabled={loading}
-                  className="sm:w-auto w-full"
-                >
-                  {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : "Book Follow-up"}
-                </Button>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  <div className="space-y-2">
+                    <Label htmlFor="fu-fullName">Full Name</Label>
+                    <Input id="fu-fullName" value={followUpDetails.fullName} onChange={(e) => setFollowUpDetails(prev => ({...prev, fullName: e.target.value}))} required disabled />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="fu-age">Age</Label>
+                    <Input id="fu-age" type="number" min={0} max={120} value={followUpDetails.age} onChange={(e) => setFollowUpDetails(prev => ({...prev, age: e.target.value}))} placeholder="Optional" disabled />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Gender</Label>
+                    <Select value={followUpDetails.gender || "not-selected"} onValueChange={(value) => setFollowUpDetails(prev => ({...prev, gender: value === "not-selected" ? "" : value}))} disabled>
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select gender" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="not-selected">Not specified</SelectItem>
+                        <SelectItem value="Male">Male</SelectItem>
+                        <SelectItem value="Female">Female</SelectItem>
+                        <SelectItem value="Other">Other</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Problem (Optional)</Label>
+                    <Select
+                      value={followUpDetails.problem || "not-selected"}
+                      onValueChange={(value) =>
+                        setFollowUpDetails(prev => ({...prev, problem: value === "not-selected" ? "" : value}))
+                      }
+                    >
+                      <SelectTrigger aria-label="Problem">
+                        <SelectValue placeholder="Select physio problem" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="not-selected">Select problem</SelectItem>
+                        {PHYSIO_PROBLEM_OPTIONS.map((problem) => (
+                          <SelectItem key={problem} value={problem}>
+                            {problem}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+                
+                <div className="flex justify-end pt-2">
+                  <Button
+                    type="button"
+                    onClick={() => handleBookFollowUp(latestPatient)}
+                    disabled={loading}
+                    className="w-full sm:w-auto"
+                  >
+                    {loading ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
+                    {followUpDetails.problem !== (latestPatient.problem || "") ? "Book Appointment" : "Book Follow-up"}
+                  </Button>
+                </div>
               </div>
             </div>
           ) : (
