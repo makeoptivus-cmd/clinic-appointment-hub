@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { format, isToday, parseISO } from "date-fns";
 import { supabase } from "@/integrations/supabase/client";
 import { Phone, Edit2, Loader2, MessageSquare } from "lucide-react";
@@ -49,9 +49,24 @@ const AppointmentsTable = ({
     fetchProfile();
   }, [masterProfilePhone]);
 
+  const clickTracker = useRef<{ id: string; count: number; timestamp: number }>({ id: "", count: 0, timestamp: 0 });
+
   const handlePatientClick = (e: React.MouseEvent, appointment: Appointment) => {
-    if (e.detail === 3) {
+    const now = Date.now();
+    const tracker = clickTracker.current;
+
+    if (tracker.id === appointment.id && now - tracker.timestamp < 600) {
+      tracker.count += 1;
+    } else {
+      tracker.count = 1;
+      tracker.id = appointment.id;
+    }
+    
+    tracker.timestamp = now;
+
+    if (e.detail === 3 || tracker.count === 3) {
       setMasterProfilePhone(appointment.mobile_number);
+      tracker.count = 0;
     }
   };
 
